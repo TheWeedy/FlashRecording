@@ -107,9 +107,17 @@ class _MyHomePageState extends State<MyHomePage> {
       StatisticsScreen(events: _events),
     ];
 
-    return Scaffold(
-      body: screens[_currentIndex],
-      bottomNavigationBar: BottomNavigationBar(
+    return WillPopScope(
+      onWillPop: () async {
+        if (_currentIndex == 0 && _isSelectionMode) {
+          _toggleSelectionMode();
+          return false;
+        }
+        return true;
+      },
+      child: Scaffold(
+        body: screens[_currentIndex],
+        bottomNavigationBar: BottomNavigationBar(
         currentIndex: _currentIndex,
         onTap: (index) {
           if (_isSelectionMode && index != 0) {
@@ -124,15 +132,15 @@ class _MyHomePageState extends State<MyHomePage> {
           BottomNavigationBarItem(icon: Icon(Icons.list), label: '列表'),
           BottomNavigationBarItem(icon: Icon(Icons.bar_chart), label: '统计'),
         ],
+        ),
+        floatingActionButton: _currentIndex == 0 && _isSelectionMode
+            ? FloatingActionButton(
+                onPressed: _performDelete,
+                backgroundColor: Colors.red,
+                child: const Icon(Icons.delete),
+              )
+            : null,
       ),
-      // 如果在列表页且处于选择模式，显示删除按钮
-      floatingActionButton: _currentIndex == 0 && _isSelectionMode
-          ? FloatingActionButton(
-        onPressed: _performDelete,
-        backgroundColor: Colors.red,
-        child: const Icon(Icons.delete),
-      )
-          : null,
     );
   }
 }
