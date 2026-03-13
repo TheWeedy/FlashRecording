@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+
 import 'models/time_event.dart';
 import 'screens/event_list_screen.dart';
 import 'screens/statistics_screen.dart';
+import 'screens/todo_screen.dart';
 import 'utils/persistence.dart';
 
 void main() {
@@ -80,7 +82,10 @@ class _MyHomePageState extends State<MyHomePage> {
   }
 
   void _performDelete() {
-    if (_selectedIds.isEmpty) return;
+    if (_selectedIds.isEmpty) {
+      return;
+    }
+
     setState(() {
       _events.removeWhere((event) => _selectedIds.contains(event.id));
       _selectedIds.clear();
@@ -105,33 +110,33 @@ class _MyHomePageState extends State<MyHomePage> {
         onToggleSelectionMode: _toggleSelectionMode,
       ),
       StatisticsScreen(events: _events),
+      const TodoScreen(),
     ];
 
-    return WillPopScope(
-      onWillPop: () async {
-        if (_currentIndex == 0 && _isSelectionMode) {
+    return PopScope(
+      canPop: !(_currentIndex == 0 && _isSelectionMode),
+      onPopInvokedWithResult: (didPop, result) {
+        if (!didPop && _currentIndex == 0 && _isSelectionMode) {
           _toggleSelectionMode();
-          return false;
         }
-        return true;
       },
       child: Scaffold(
         body: screens[_currentIndex],
         bottomNavigationBar: BottomNavigationBar(
-        currentIndex: _currentIndex,
-        onTap: (index) {
-          if (_isSelectionMode && index != 0) {
-            // 如果在选择模式，切到统计页前退出
-            _toggleSelectionMode();
-          }
-          setState(() {
-            _currentIndex = index;
-          });
-        },
-        items: const [
-          BottomNavigationBarItem(icon: Icon(Icons.list), label: '列表'),
-          BottomNavigationBarItem(icon: Icon(Icons.bar_chart), label: '统计'),
-        ],
+          currentIndex: _currentIndex,
+          onTap: (index) {
+            if (_isSelectionMode && index != 0) {
+              _toggleSelectionMode();
+            }
+            setState(() {
+              _currentIndex = index;
+            });
+          },
+          items: const [
+            BottomNavigationBarItem(icon: Icon(Icons.list), label: '列表'),
+            BottomNavigationBarItem(icon: Icon(Icons.bar_chart), label: '统计'),
+            BottomNavigationBarItem(icon: Icon(Icons.checklist), label: '待办'),
+          ],
         ),
         floatingActionButton: _currentIndex == 0 && _isSelectionMode
             ? FloatingActionButton(
