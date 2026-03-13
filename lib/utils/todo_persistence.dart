@@ -32,6 +32,7 @@ class TodoPersistenceService {
     await db.insert('todo_items', {
       'id': DateTime.now().microsecondsSinceEpoch.toString(),
       'title': title,
+      'metric_type': 'duration',
       'progress_value': 0,
       'is_system': 0,
       'created_at': DateTime.now().toIso8601String(),

@@ -4,18 +4,15 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite/sqflite.dart';
 
 import '../models/time_event.dart';
-import 'todo_persistence.dart';
 import 'local_database.dart';
 
 class PersistenceService {
   static const String _legacyEventsKey = 'events';
   static const String _legacyBackupKey = 'events_legacy_backup';
   static const String _migrationDoneKey = 'events_migration_done';
-  static const String _todoLinkBackfillDoneKey = 'todo_link_backfill_done';
 
   Future<List<TimeEvent>> loadEvents() async {
     await _migrateLegacyEventsIfNeeded();
-    await _backfillLegacyTodoLinksIfNeeded();
 
     final db = await LocalDatabase.instance.database;
     final rows = await db.query(
@@ -131,55 +128,6 @@ class PersistenceService {
     if (migratedCount == legacyEvents.length) {
       await prefs.setBool(_migrationDoneKey, true);
     }
-  }
-
-  Future<void> _backfillLegacyTodoLinksIfNeeded() async {
-    final prefs = await SharedPreferences.getInstance();
-    if (prefs.getBool(_todoLinkBackfillDoneKey) == true) {
-      return;
-    }
-
-    final db = await LocalDatabase.instance.database;
-    final batch = db.batch();
-
-    for (final entry in TodoPersistenceService.seedTodos.entries) {
-      batch.insert(
-        'todo_items',
-        {
-          'id': entry.key,
-          'title': entry.value,
-          'metric_type': 'duration',
-          'progress_value': 0,
-          'is_system': 1,
-          'created_at': DateTime.fromMillisecondsSinceEpoch(0)
-              .toIso8601String(),
-          'archived_at': null,
-        },
-        conflictAlgorithm: ConflictAlgorithm.ignore,
-      );
-    }
-
-    await batch.commit(noResult: true);
-
-    await db.rawUpdate('''
-      UPDATE time_events
-      SET
-        linked_todo_id = CASE type
-          WHEN 'work' THEN 'system-work'
-          WHEN 'study' THEN 'system-study'
-          WHEN 'play' THEN 'system-play'
-          ELSE linked_todo_id
-        END,
-        linked_todo_title = CASE type
-          WHEN 'work' THEN '工作'
-          WHEN 'study' THEN '学习'
-          WHEN 'play' THEN '娱乐'
-          ELSE linked_todo_title
-        END
-      WHERE linked_todo_id IS NULL OR linked_todo_title IS NULL
-    ''');
-
-    await prefs.setBool(_todoLinkBackfillDoneKey, true);
   }
 
   Future<int> _queryEventCount(Database db) async {
