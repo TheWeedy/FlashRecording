@@ -1,4 +1,5 @@
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:flutter/foundation.dart';
 
 class NotificationService {
   NotificationService._();
@@ -8,13 +9,18 @@ class NotificationService {
   final FlutterLocalNotificationsPlugin _plugin = FlutterLocalNotificationsPlugin();
 
   Future<void> initialize() async {
-    const initializationSettings = InitializationSettings(
-      android: AndroidInitializationSettings('ic_launcher'),
-    );
-    await _plugin.initialize(settings: initializationSettings);
-    await _plugin
-        .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()
-        ?.requestNotificationsPermission();
+    try {
+      const initializationSettings = InitializationSettings(
+        android: AndroidInitializationSettings('ic_notification'),
+      );
+      await _plugin.initialize(settings: initializationSettings);
+      await _plugin
+          .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()
+          ?.requestNotificationsPermission();
+    } catch (error, stackTrace) {
+      debugPrint('Notification initialization failed: $error');
+      debugPrintStack(stackTrace: stackTrace);
+    }
   }
 
   Future<void> showTodoReminder({
