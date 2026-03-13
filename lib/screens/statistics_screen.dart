@@ -2,7 +2,6 @@ import 'dart:math' as math;
 
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_customizable_calendar/flutter_customizable_calendar.dart';
 
 import '../models/time_event.dart';
 
@@ -18,35 +17,17 @@ class StatisticsScreen extends StatefulWidget {
 }
 
 class _StatisticsScreenState extends State<StatisticsScreen> {
+  static const double _hourRowHeight = 52;
+
   late DateTime _selectedDate;
-  late StatisticsViewMode _viewMode;
-  late DaysViewController _daysController;
-  late WeekViewController _weekController;
+  StatisticsViewMode _viewMode = StatisticsViewMode.day;
+  int _touchedPieIndex = -1;
 
   @override
   void initState() {
     super.initState();
-    _selectedDate = widget.events.isEmpty
-        ? DateTime.now()
-        : widget.events.first.addedAt;
-    _viewMode = StatisticsViewMode.day;
-    _daysController = DaysViewController(
-      initialDate: DateTime(_selectedDate.year, _selectedDate.month, 1),
-      focusedDate: _selectedDate,
-    );
-    _weekController = WeekViewController(
-      initialDate: _selectedDate,
-      visibleDays: 7,
-    );
-    _daysController.selectDay(_selectedDate);
-    _weekController.setDisplayedDate(_selectedDate);
-  }
-
-  @override
-  void dispose() {
-    _daysController.dispose();
-    _weekController.dispose();
-    super.dispose();
+    _selectedDate =
+        widget.events.isEmpty ? DateTime.now() : widget.events.first.addedAt;
   }
 
   Future<void> _pickDate() async {
@@ -62,64 +43,63 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
 
     setState(() {
       _selectedDate = picked;
-      _daysController.selectDay(picked);
-      _weekController.setDisplayedDate(picked);
+      _touchedPieIndex = -1;
     });
   }
 
+  DateTime get _startOfSelectedWeek =>
+      _dateOnly(_selectedDate).subtract(Duration(days: _selectedDate.weekday - 1));
+
   List<TimeEvent> get _filteredEvents {
     if (_viewMode == StatisticsViewMode.day) {
-      return widget.events.where((event) {
-        return event.addedAt.year == _selectedDate.year &&
-            event.addedAt.month == _selectedDate.month &&
-            event.addedAt.day == _selectedDate.day;
-      }).toList();
+      final day = _dateOnly(_selectedDate);
+      return widget.events.where((event) => _isSameDay(event.addedAt, day)).toList()
+        ..sort((a, b) => a.addedAt.compareTo(b.addedAt));
     }
 
-    final startOfWeek =
-        _selectedDate.subtract(Duration(days: _selectedDate.weekday - 1));
-    final endOfWeek = startOfWeek.add(const Duration(days: 7));
+    final start = _startOfSelectedWeek;
+    final end = start.add(const Duration(days: 7));
     return widget.events.where((event) {
-      final addedAt = event.addedAt;
-      return !addedAt.isBefore(startOfWeek) && addedAt.isBefore(endOfWeek);
-    }).toList();
+      final timestamp = event.addedAt;
+      return !timestamp.isBefore(start) && timestamp.isBefore(end);
+    }).toList()..sort((a, b) => a.addedAt.compareTo(b.addedAt));
   }
 
-  List<FloatingCalendarEvent> get _calendarEvents {
-    return _filteredEvents.map((event) {
-      final color = _colorForEvent(event);
-      if (event.recordMode == EventRecordMode.count) {
-        return TaskDue(
-          id: event.id,
-          start: event.addedAt,
-          color: color,
-        );
-      }
-
-      final duration = Duration(
-        minutes: math.max(1, event.totalMinutes),
+  Map<String, _TagStats> get _tagStats {
+    final stats = <String, _TagStats>{};
+    for (final event in _filteredEvents) {
+      final label = event.linkedTodoTitle ?? '未命名标签';
+      final current = stats[label];
+      stats[label] = _TagStats(
+        label: label,
+        color: _colorForEvent(event),
+        count: (current?.count ?? 0) + 1,
+        minutes: (current?.minutes ?? 0) + event.totalMinutes,
       );
-      return SimpleEvent(
-        id: event.id,
-        start: event.addedAt.subtract(duration),
-        duration: duration,
-        title: event.linkedTodoTitle ?? event.description,
-        color: color,
-      );
-    }).toList();
+    }
+    return stats;
   }
+
+  int get _totalMinutes =>
+      _filteredEvents.fold(0, (sum, event) => sum + event.totalMinutes);
 
   Color _colorForEvent(TimeEvent event) {
     switch (event.linkedTodoId) {
       case 'system-work':
-        return Colors.blue;
+        return Colors.blue.shade600;
       case 'system-study':
-        return Colors.green;
+        return Colors.green.shade600;
       case 'system-play':
-        return Colors.orange;
+        return Colors.orange.shade700;
       default:
-        return Colors.teal;
+        return Colors.teal.shade600;
     }
+  }
+
+  DateTime _dateOnly(DateTime value) => DateTime(value.year, value.month, value.day);
+
+  bool _isSameDay(DateTime a, DateTime b) {
+    return a.year == b.year && a.month == b.month && a.day == b.day;
   }
 
   String _formatDate(DateTime date) {
@@ -139,175 +119,170 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
   }
 
   Widget _buildSummaryCards() {
-    final totalCount = _filteredEvents.length;
-    final totalMinutes = _filteredEvents.fold<int>(
-      0,
-      (sum, event) => sum + event.totalMinutes,
-    );
-
     return Row(
       children: [
         Expanded(
           child: _SummaryCard(
             label: '记录次数',
-            value: '$totalCount 次',
+            value: '${_filteredEvents.length} 次',
           ),
         ),
         const SizedBox(width: 12),
         Expanded(
           child: _SummaryCard(
             label: '记录时长',
-            value: _formatDuration(totalMinutes),
+            value: _formatDuration(_totalMinutes),
           ),
         ),
       ],
     );
   }
 
-  Widget _buildTagChart() {
-    final tagMinutes = <String, int>{};
-    for (final event in _filteredEvents) {
-      final label = event.linkedTodoTitle ?? '未命名';
-      tagMinutes[label] = (tagMinutes[label] ?? 0) + event.totalMinutes;
-    }
-
-    final entries = tagMinutes.entries.toList()
-      ..sort((a, b) => b.value.compareTo(a.value));
+  Widget _buildPieChart() {
+    final entries = _tagStats.values.toList()
+      ..sort((a, b) => b.minutes.compareTo(a.minutes));
 
     if (entries.isEmpty) {
       return const Card(
         child: Padding(
-          padding: EdgeInsets.all(16),
-          child: Text('当前时间范围内还没有可统计的数据'),
+          padding: EdgeInsets.all(18),
+          child: Text(
+            '当前时间范围内没有可统计的数据。',
+            style: TextStyle(fontWeight: FontWeight.w700),
+          ),
         ),
       );
     }
 
-    final chartMax = math.max(
-      60,
-      entries.map((e) => e.value).fold<int>(0, math.max),
-    ).toDouble();
+    final touchedEntry =
+        _touchedPieIndex >= 0 && _touchedPieIndex < entries.length ? entries[_touchedPieIndex] : null;
 
     return Card(
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+        padding: const EdgeInsets.all(18),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text(
-              '标签时长',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              '标签占比',
+              style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900),
             ),
             const SizedBox(height: 12),
             SizedBox(
-              height: 220,
-              child: BarChart(
-                BarChartData(
-                  minY: 0,
-                  maxY: chartMax,
-                  barGroups: [
-                    for (var i = 0; i < entries.length; i++)
-                      BarChartGroupData(
-                        x: i,
-                        barRods: [
-                          BarChartRodData(
-                            toY: entries[i].value.toDouble(),
-                            color: Colors.teal,
-                            width: 20,
-                            borderRadius: BorderRadius.circular(6),
-                          ),
+              height: 260,
+              child: Row(
+                children: [
+                  Expanded(
+                    flex: 6,
+                    child: PieChart(
+                      PieChartData(
+                        pieTouchData: PieTouchData(
+                          touchCallback: (event, response) {
+                            setState(() {
+                              _touchedPieIndex = response?.touchedSection?.touchedSectionIndex ?? -1;
+                            });
+                          },
+                        ),
+                        sectionsSpace: 3,
+                        centerSpaceRadius: 54,
+                        sections: [
+                          for (var i = 0; i < entries.length; i++)
+                            PieChartSectionData(
+                              color: entries[i].color,
+                              value: math.max(entries[i].minutes.toDouble(), 1),
+                              radius: _touchedPieIndex == i ? 92 : 82,
+                              title: '${((entries[i].minutes / math.max(_totalMinutes, 1)) * 100).toStringAsFixed(0)}%',
+                              titleStyle: const TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w900,
+                                color: Colors.white,
+                              ),
+                            ),
                         ],
                       ),
-                  ],
-                  titlesData: FlTitlesData(
-                    bottomTitles: AxisTitles(
-                      sideTitles: SideTitles(
-                        showTitles: true,
-                        getTitlesWidget: (value, meta) {
-                          final index = value.toInt();
-                          if (index < 0 || index >= entries.length) {
-                            return const SizedBox();
-                          }
-                          return Padding(
-                            padding: const EdgeInsets.only(top: 8),
-                            child: Text(
-                              entries[index].key,
-                              style: const TextStyle(fontSize: 11),
-                            ),
-                          );
-                        },
-                      ),
-                    ),
-                    leftTitles: AxisTitles(
-                      sideTitles: SideTitles(
-                        showTitles: true,
-                        reservedSize: 44,
-                        interval: 60,
-                        getTitlesWidget: (value, meta) {
-                          return Text(
-                            '${(value / 60).toStringAsFixed(0)}h',
-                            style: const TextStyle(fontSize: 10),
-                          );
-                        },
-                      ),
-                    ),
-                    rightTitles: const AxisTitles(
-                      sideTitles: SideTitles(showTitles: false),
-                    ),
-                    topTitles: const AxisTitles(
-                      sideTitles: SideTitles(showTitles: false),
                     ),
                   ),
-                  borderData: FlBorderData(show: false),
-                  gridData: FlGridData(
-                    show: true,
-                    drawVerticalLine: false,
-                    horizontalInterval: 60,
+                  const SizedBox(width: 16),
+                  Expanded(
+                    flex: 5,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        for (final entry in entries) ...[
+                          _LegendRow(entry: entry),
+                          const SizedBox(height: 10),
+                        ],
+                      ],
+                    ),
                   ),
-                  barTouchData: BarTouchData(enabled: true),
-                ),
+                ],
               ),
             ),
+            if (touchedEntry != null)
+              Container(
+                width: double.infinity,
+                margin: const EdgeInsets.only(top: 8),
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: touchedEntry.color.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  '${touchedEntry.label}：${touchedEntry.count} 次，${_formatDuration(touchedEntry.minutes)}',
+                  style: const TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildCalendarView() {
-    if (_calendarEvents.isEmpty) {
+  Widget _buildTimeline() {
+    if (_filteredEvents.isEmpty) {
       return const Card(
         child: Padding(
-          padding: EdgeInsets.all(16),
-          child: Text('当前时间范围内没有记录，时间轴会在新增记录后显示。'),
+          padding: EdgeInsets.all(18),
+          child: Text(
+            '当前时间范围内没有记录，时间轴会在新增记录后显示。',
+            style: TextStyle(fontWeight: FontWeight.w700),
+          ),
         ),
       );
     }
 
-    const timelineTheme = TimelineTheme(
-      timeScaleTheme: TimeScaleTheme(
-        width: 40,
-        hourExtent: 64,
-      ),
-    );
-
-    return SizedBox(
-      height: 420,
-      child: Card(
-        clipBehavior: Clip.antiAlias,
-        child: _viewMode == StatisticsViewMode.day
-            ? DaysView<FloatingCalendarEvent>(
-                controller: _daysController,
-                events: _calendarEvents,
-                timelineTheme: timelineTheme,
-                enableFloatingEvents: false,
-              )
-            : WeekView<FloatingCalendarEvent>(
-                controller: _weekController,
-                events: _calendarEvents,
-                timelineTheme: timelineTheme,
-                enableFloatingEvents: false,
-              ),
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(18, 18, 18, 22),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              _viewMode == StatisticsViewMode.day ? '单日时间轴' : '本周时间轴',
+              style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w900),
+            ),
+            const SizedBox(height: 14),
+            _viewMode == StatisticsViewMode.day
+                ? _DayTimeline(
+                    date: _selectedDate,
+                    events: _filteredEvents,
+                    hourRowHeight: _hourRowHeight,
+                    formatDuration: _formatDuration,
+                    colorForEvent: _colorForEvent,
+                  )
+                : _WeekTimeline(
+                    weekStart: _startOfSelectedWeek,
+                    events: _filteredEvents,
+                    hourRowHeight: _hourRowHeight,
+                    formatDuration: _formatDuration,
+                    colorForEvent: _colorForEvent,
+                  ),
+          ],
+        ),
       ),
     );
   }
@@ -316,11 +291,14 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
   Widget build(BuildContext context) {
     final title = _viewMode == StatisticsViewMode.day
         ? '日期：${_formatDate(_selectedDate)}'
-        : '周视图：${_formatDate(_selectedDate)}';
+        : '周范围：${_formatDate(_startOfSelectedWeek)} - ${_formatDate(_startOfSelectedWeek.add(const Duration(days: 6)))}';
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('统计'),
+        title: const Text(
+          '统计',
+          style: TextStyle(fontWeight: FontWeight.w900),
+        ),
         actions: [
           IconButton(
             onPressed: _pickDate,
@@ -334,7 +312,7 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
         children: [
           Text(
             title,
-            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
           ),
           const SizedBox(height: 12),
           SegmentedButton<StatisticsViewMode>(
@@ -354,17 +332,66 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
             onSelectionChanged: (selection) {
               setState(() {
                 _viewMode = selection.first;
+                _touchedPieIndex = -1;
               });
             },
+            style: const ButtonStyle(
+              textStyle: WidgetStatePropertyAll(
+                TextStyle(fontSize: 15, fontWeight: FontWeight.w800),
+              ),
+            ),
           ),
           const SizedBox(height: 16),
           _buildSummaryCards(),
           const SizedBox(height: 16),
-          _buildCalendarView(),
+          _buildPieChart(),
           const SizedBox(height: 16),
-          _buildTagChart(),
+          _buildTimeline(),
         ],
       ),
+    );
+  }
+}
+
+class _TagStats {
+  final String label;
+  final Color color;
+  final int count;
+  final int minutes;
+
+  const _TagStats({
+    required this.label,
+    required this.color,
+    required this.count,
+    required this.minutes,
+  });
+}
+
+class _LegendRow extends StatelessWidget {
+  final _TagStats entry;
+
+  const _LegendRow({required this.entry});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Container(
+          width: 12,
+          height: 12,
+          decoration: BoxDecoration(
+            color: entry.color,
+            borderRadius: BorderRadius.circular(999),
+          ),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            entry.label,
+            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w800),
+          ),
+        ),
+      ],
     );
   }
 }
@@ -388,17 +415,325 @@ class _SummaryCard extends StatelessWidget {
           children: [
             Text(
               label,
-              style: const TextStyle(fontSize: 12, color: Colors.grey),
+              style: const TextStyle(
+                fontSize: 13,
+                color: Colors.grey,
+                fontWeight: FontWeight.w800,
+              ),
             ),
-            const SizedBox(height: 6),
+            const SizedBox(height: 8),
             Text(
               value,
               style: const TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
+                fontSize: 20,
+                fontWeight: FontWeight.w900,
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class _DayTimeline extends StatelessWidget {
+  final DateTime date;
+  final List<TimeEvent> events;
+  final double hourRowHeight;
+  final String Function(int minutes) formatDuration;
+  final Color Function(TimeEvent event) colorForEvent;
+
+  const _DayTimeline({
+    required this.date,
+    required this.events,
+    required this.hourRowHeight,
+    required this.formatDuration,
+    required this.colorForEvent,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final scaleWidth = constraints.maxWidth * 0.32;
+        final timelineHeight = hourRowHeight * 24;
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              '${date.month}月${date.day}日',
+              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w900),
+            ),
+            const SizedBox(height: 12),
+            SizedBox(
+              height: timelineHeight,
+              child: Row(
+                children: [
+                  SizedBox(
+                    width: scaleWidth,
+                    child: _TimeScale(hourRowHeight: hourRowHeight),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: _TimelineColumn(
+                      events: events,
+                      colorForEvent: colorForEvent,
+                      formatDuration: formatDuration,
+                      hourRowHeight: hourRowHeight,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _WeekTimeline extends StatelessWidget {
+  final DateTime weekStart;
+  final List<TimeEvent> events;
+  final double hourRowHeight;
+  final String Function(int minutes) formatDuration;
+  final Color Function(TimeEvent event) colorForEvent;
+
+  const _WeekTimeline({
+    required this.weekStart,
+    required this.events,
+    required this.hourRowHeight,
+    required this.formatDuration,
+    required this.colorForEvent,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final days = List.generate(7, (index) => weekStart.add(Duration(days: index)));
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final scaleWidth = constraints.maxWidth * 0.32;
+        final timelineHeight = hourRowHeight * 24;
+
+        return Column(
+          children: [
+            Row(
+              children: [
+                SizedBox(width: scaleWidth),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Row(
+                    children: [
+                      for (final day in days)
+                        Expanded(
+                          child: Center(
+                            child: Text(
+                              '${day.month}/${day.day}',
+                              style: const TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            SizedBox(
+              height: timelineHeight,
+              child: Row(
+                children: [
+                  SizedBox(
+                    width: scaleWidth,
+                    child: _TimeScale(hourRowHeight: hourRowHeight),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Row(
+                      children: [
+                        for (final day in days)
+                          Expanded(
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 2),
+                              child: _TimelineColumn(
+                                events: events.where((event) {
+                                  return event.addedAt.year == day.year &&
+                                      event.addedAt.month == day.month &&
+                                      event.addedAt.day == day.day;
+                                }).toList(),
+                                colorForEvent: colorForEvent,
+                                formatDuration: formatDuration,
+                                hourRowHeight: hourRowHeight,
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _TimeScale extends StatelessWidget {
+  final double hourRowHeight;
+
+  const _TimeScale({required this.hourRowHeight});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        for (int hour = 0; hour < 24; hour++)
+          SizedBox(
+            height: hourRowHeight,
+            child: Align(
+              alignment: Alignment.topLeft,
+              child: Text(
+                '${hour.toString().padLeft(2, '0')}:00',
+                style: const TextStyle(
+                  fontSize: 17,
+                  fontWeight: FontWeight.w900,
+                  height: 1,
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _TimelineColumn extends StatelessWidget {
+  final List<TimeEvent> events;
+  final Color Function(TimeEvent event) colorForEvent;
+  final String Function(int minutes) formatDuration;
+  final double hourRowHeight;
+
+  const _TimelineColumn({
+    required this.events,
+    required this.colorForEvent,
+    required this.formatDuration,
+    required this.hourRowHeight,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final totalHeight = hourRowHeight * 24;
+
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.grey.shade50,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: Colors.grey.shade300),
+      ),
+      child: Stack(
+        children: [
+          Column(
+            children: [
+              for (int i = 0; i < 24; i++)
+                Container(
+                  height: hourRowHeight,
+                  decoration: BoxDecoration(
+                    border: Border(
+                      top: BorderSide(
+                        color: i == 0 ? Colors.transparent : Colors.grey.shade200,
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+          for (final event in events)
+            _buildEventOverlay(
+              context,
+              event: event,
+              totalHeight: totalHeight,
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildEventOverlay(
+    BuildContext context, {
+    required TimeEvent event,
+    required double totalHeight,
+  }) {
+    final timestamp = event.addedAt;
+    final minuteOfDay = timestamp.hour * 60 + timestamp.minute;
+    final top = (minuteOfDay / (24 * 60)) * totalHeight;
+
+    if (event.recordMode == EventRecordMode.count) {
+      return Positioned(
+        top: top.clamp(0.0, totalHeight - 16),
+        left: 10,
+        right: 10,
+        child: Tooltip(
+          message:
+              '${event.linkedTodoTitle ?? event.description}\n${timestamp.hour.toString().padLeft(2, '0')}:${timestamp.minute.toString().padLeft(2, '0')} · 1 次',
+          child: Align(
+            alignment: Alignment.centerLeft,
+            child: Container(
+              width: 14,
+              height: 14,
+              decoration: BoxDecoration(
+                color: colorForEvent(event),
+                shape: BoxShape.circle,
+                border: Border.all(color: Colors.white, width: 2),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    final startMinutes = minuteOfDay - event.totalMinutes;
+    final startTop = (startMinutes / (24 * 60)) * totalHeight;
+    final height = math.max((event.totalMinutes / (24 * 60)) * totalHeight, 18.0);
+
+    return Positioned(
+      top: startTop.clamp(0.0, totalHeight - height),
+      left: 8,
+      right: 8,
+      child: Tooltip(
+        message:
+            '${event.linkedTodoTitle ?? event.description}\n${formatDuration(event.totalMinutes)}',
+        child: Container(
+          height: height,
+          decoration: BoxDecoration(
+            color: colorForEvent(event).withValues(alpha: 0.88),
+            borderRadius: BorderRadius.circular(18),
+            boxShadow: [
+              BoxShadow(
+                color: colorForEvent(event).withValues(alpha: 0.18),
+                blurRadius: 10,
+                offset: const Offset(0, 3),
+              ),
+            ],
+          ),
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+          alignment: Alignment.topLeft,
+          child: Text(
+            event.linkedTodoTitle ?? event.description,
+            maxLines: height > 34 ? 2 : 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 12,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
         ),
       ),
     );
