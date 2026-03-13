@@ -1,3 +1,5 @@
+import 'package:flutter/material.dart';
+
 class TodoItem {
   final String id;
   final String title;
@@ -6,6 +8,7 @@ class TodoItem {
   final DateTime? archivedAt;
   final int totalCount;
   final int totalDurationMinutes;
+  final int colorValue;
 
   const TodoItem({
     required this.id,
@@ -14,10 +17,13 @@ class TodoItem {
     required this.createdAt,
     required this.totalCount,
     required this.totalDurationMinutes,
+    required this.colorValue,
     this.archivedAt,
   });
 
   bool get isArchived => archivedAt != null;
+
+  Color get color => Color(colorValue);
 
   String get summaryLabel {
     final hours = totalDurationMinutes ~/ 60;

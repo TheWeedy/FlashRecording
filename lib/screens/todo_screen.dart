@@ -11,6 +11,17 @@ class TodoScreen extends StatefulWidget {
 }
 
 class _TodoScreenState extends State<TodoScreen> {
+  static const _presetColors = [
+    0xFF3B82F6,
+    0xFF22C55E,
+    0xFFF97316,
+    0xFFEF4444,
+    0xFF8B5CF6,
+    0xFF14B8A6,
+    0xFFEAB308,
+    0xFF64748B,
+  ];
+
   final TodoPersistenceService _service = TodoPersistenceService();
 
   List<TodoItem> _activeTodos = [];
@@ -39,42 +50,154 @@ class _TodoScreenState extends State<TodoScreen> {
 
   Future<void> _showCreateTodoDialog() async {
     final titleController = TextEditingController();
+    int selectedColor = _presetColors[5];
 
     await showDialog<void>(
       context: context,
       builder: (dialogContext) {
         final navigator = Navigator.of(dialogContext);
-        return AlertDialog(
-          title: const Text('新增待办标签'),
-          content: TextField(
-            controller: titleController,
-            decoration: const InputDecoration(
-              labelText: '标题',
-              border: OutlineInputBorder(),
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: navigator.pop,
-              child: const Text('取消'),
-            ),
-            ElevatedButton(
-              onPressed: () async {
-                final title = titleController.text.trim();
-                if (title.isEmpty) {
-                  return;
-                }
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: const Text('新增待办标签'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: titleController,
+                    decoration: const InputDecoration(
+                      labelText: '标题',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: Wrap(
+                      spacing: 10,
+                      runSpacing: 10,
+                      children: [
+                        for (final colorValue in _presetColors)
+                          InkWell(
+                            onTap: () {
+                              setDialogState(() {
+                                selectedColor = colorValue;
+                              });
+                            },
+                            borderRadius: BorderRadius.circular(999),
+                            child: Container(
+                              width: 32,
+                              height: 32,
+                              decoration: BoxDecoration(
+                                color: Color(colorValue),
+                                shape: BoxShape.circle,
+                                border: Border.all(
+                                  color: selectedColor == colorValue
+                                      ? Colors.black
+                                      : Colors.transparent,
+                                  width: 2,
+                                ),
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: navigator.pop,
+                  child: const Text('取消'),
+                ),
+                ElevatedButton(
+                  onPressed: () async {
+                    final title = titleController.text.trim();
+                    if (title.isEmpty) {
+                      return;
+                    }
 
-                await _service.createTodo(title: title);
-                if (!mounted) {
-                  return;
-                }
-                navigator.pop();
-                await _loadTodos();
-              },
-              child: const Text('保存'),
-            ),
-          ],
+                    await _service.createTodo(
+                      title: title,
+                      colorValue: selectedColor,
+                    );
+                    if (!mounted) {
+                      return;
+                    }
+                    navigator.pop();
+                    await _loadTodos();
+                  },
+                  child: const Text('保存'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Future<void> _showColorDialog(TodoItem item) async {
+    int selectedColor = item.colorValue;
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        final navigator = Navigator.of(dialogContext);
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: Text('更换 ${item.title} 颜色'),
+              content: Wrap(
+                spacing: 10,
+                runSpacing: 10,
+                children: [
+                  for (final colorValue in _presetColors)
+                    InkWell(
+                      onTap: () {
+                        setDialogState(() {
+                          selectedColor = colorValue;
+                        });
+                      },
+                      borderRadius: BorderRadius.circular(999),
+                      child: Container(
+                        width: 38,
+                        height: 38,
+                        decoration: BoxDecoration(
+                          color: Color(colorValue),
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                            color: selectedColor == colorValue
+                                ? Colors.black
+                                : Colors.transparent,
+                            width: 2,
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: navigator.pop,
+                  child: const Text('取消'),
+                ),
+                FilledButton(
+                  onPressed: () async {
+                    await _service.updateTodoColor(
+                      id: item.id,
+                      colorValue: selectedColor,
+                    );
+                    if (!mounted) {
+                      return;
+                    }
+                    navigator.pop();
+                    await _loadTodos();
+                  },
+                  child: const Text('保存'),
+                ),
+              ],
+            );
+          },
         );
       },
     );
@@ -149,12 +272,39 @@ class _TodoScreenState extends State<TodoScreen> {
       child: ListTile(
         title: Row(
           children: [
+            Container(
+              width: 12,
+              height: 12,
+              decoration: BoxDecoration(
+                color: item.color,
+                shape: BoxShape.circle,
+              ),
+            ),
+            const SizedBox(width: 8),
             Expanded(child: Text(item.title)),
             if (item.isSystem)
-              const Padding(
-                padding: EdgeInsets.only(left: 8),
-                child: Chip(
-                  label: Text('系统'),
+              Padding(
+                padding: const EdgeInsets.only(left: 8),
+                child: ActionChip(
+                  onPressed: archived ? null : () => _showColorDialog(item),
+                  avatar: CircleAvatar(
+                    radius: 7,
+                    backgroundColor: item.color,
+                  ),
+                  label: const Text('默认'),
+                  visualDensity: VisualDensity.compact,
+                ),
+              )
+            else if (!archived)
+              Padding(
+                padding: const EdgeInsets.only(left: 8),
+                child: ActionChip(
+                  onPressed: () => _showColorDialog(item),
+                  avatar: CircleAvatar(
+                    radius: 7,
+                    backgroundColor: item.color,
+                  ),
+                  label: const Text('颜色'),
                   visualDensity: VisualDensity.compact,
                 ),
               ),

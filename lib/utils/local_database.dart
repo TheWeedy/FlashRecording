@@ -7,7 +7,7 @@ class LocalDatabase {
   static final LocalDatabase instance = LocalDatabase._();
 
   static const _databaseName = 'record_my_time.db';
-  static const _databaseVersion = 3;
+  static const _databaseVersion = 5;
 
   Database? _database;
 
@@ -50,6 +50,24 @@ class LocalDatabase {
             "ALTER TABLE time_events ADD COLUMN record_mode TEXT NOT NULL DEFAULT 'duration'",
           );
         }
+        if (oldVersion < 4) {
+          await db.execute('''
+            CREATE TABLE notes (
+              id TEXT PRIMARY KEY,
+              title TEXT NOT NULL,
+              delta_json TEXT NOT NULL,
+              plain_text_preview TEXT NOT NULL DEFAULT '',
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL,
+              archived_at TEXT
+            )
+          ''');
+        }
+        if (oldVersion < 5) {
+          await db.execute(
+            'ALTER TABLE todo_items ADD COLUMN color_value INTEGER NOT NULL DEFAULT 0',
+          );
+        }
       },
     );
 
@@ -79,7 +97,20 @@ class LocalDatabase {
         metric_type TEXT NOT NULL,
         progress_value INTEGER NOT NULL DEFAULT 0,
         is_system INTEGER NOT NULL DEFAULT 0,
+        color_value INTEGER NOT NULL DEFAULT 0,
         created_at TEXT NOT NULL,
+        archived_at TEXT
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE notes (
+        id TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        delta_json TEXT NOT NULL,
+        plain_text_preview TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
         archived_at TEXT
       )
     ''');

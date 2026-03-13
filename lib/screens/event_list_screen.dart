@@ -1,17 +1,11 @@
 import 'package:flutter/material.dart';
 
+import '../app_info.dart';
 import '../models/time_event.dart';
 import '../models/todo_item.dart';
 import '../utils/todo_persistence.dart';
 
 class EventListScreen extends StatefulWidget {
-  final List<TimeEvent> events;
-  final void Function(TimeEvent) onAdd;
-  final void Function(Set<String>) onDeleteSelected;
-  final bool isSelectionMode;
-  final Set<String> selectedIds;
-  final VoidCallback onToggleSelectionMode;
-
   const EventListScreen({
     super.key,
     required this.events,
@@ -22,6 +16,13 @@ class EventListScreen extends StatefulWidget {
     required this.onToggleSelectionMode,
   });
 
+  final List<TimeEvent> events;
+  final void Function(TimeEvent) onAdd;
+  final void Function(Set<String>) onDeleteSelected;
+  final bool isSelectionMode;
+  final Set<String> selectedIds;
+  final VoidCallback onToggleSelectionMode;
+
   @override
   State<EventListScreen> createState() => _EventListScreenState();
 }
@@ -29,6 +30,7 @@ class EventListScreen extends StatefulWidget {
 class _EventListScreenState extends State<EventListScreen> {
   final TodoPersistenceService _todoService = TodoPersistenceService();
   List<TodoItem> _availableTodos = [];
+  Map<String, Color> _todoColorMap = {};
 
   @override
   void initState() {
@@ -38,12 +40,14 @@ class _EventListScreenState extends State<EventListScreen> {
 
   Future<void> _loadAvailableTodos() async {
     final todos = await _todoService.loadAvailableTagTodos();
+    final colorMap = await _todoService.loadTodoColorMap();
     if (!mounted) {
       return;
     }
 
     setState(() {
       _availableTodos = todos;
+      _todoColorMap = colorMap;
     });
   }
 
@@ -60,11 +64,50 @@ class _EventListScreenState extends State<EventListScreen> {
     }
   }
 
+  ({int hours, int minutes}) _suggestedDuration() {
+    final now = DateTime.now();
+    final todayEvents = widget.events
+        .where(
+          (event) =>
+              event.addedAt.year == now.year &&
+              event.addedAt.month == now.month &&
+              event.addedAt.day == now.day &&
+              event.addedAt.isBefore(now),
+        )
+        .toList()
+      ..sort((a, b) => b.addedAt.compareTo(a.addedAt));
+
+    Duration duration = Duration.zero;
+    if (todayEvents.isNotEmpty) {
+      duration = now.difference(todayEvents.first.addedAt);
+    } else if (now.hour >= 9) {
+      duration = now.difference(DateTime(now.year, now.month, now.day, 9));
+    }
+
+    final totalMinutes = duration.inMinutes.clamp(0, 24 * 60 - 1);
+    return (
+      hours: totalMinutes ~/ 60,
+      minutes: totalMinutes % 60,
+    );
+  }
+
+  Future<void> _showSettingsDialog() async {
+    showAboutDialog(
+      context: context,
+      applicationName: appDisplayName,
+      applicationVersion: appVersion,
+      children: const [
+        Text('2.0.1 版本包含统计页修复、笔记交互增强与标签颜色能力。'),
+      ],
+    );
+  }
+
   Future<void> _showAddEventDialog(BuildContext context) async {
     final descController = TextEditingController();
     final noteController = TextEditingController();
-    String hoursInput = '0';
-    String minutesInput = '0';
+    final suggestion = _suggestedDuration();
+    final hoursController = TextEditingController(text: '${suggestion.hours}');
+    final minutesController = TextEditingController(text: '${suggestion.minutes}');
     String? linkedTodoId = 'system-study';
 
     await _loadAvailableTodos();
@@ -95,7 +138,20 @@ class _EventListScreenState extends State<EventListScreen> {
                           .map(
                             (todo) => DropdownMenuItem<String?>(
                               value: todo.id,
-                              child: Text(todo.title),
+                              child: Row(
+                                children: [
+                                  Container(
+                                    width: 12,
+                                    height: 12,
+                                    decoration: BoxDecoration(
+                                      color: todo.color,
+                                      shape: BoxShape.circle,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Text(todo.title),
+                                ],
+                              ),
                             ),
                           )
                           .toList(),
@@ -107,21 +163,21 @@ class _EventListScreenState extends State<EventListScreen> {
                     ),
                     const SizedBox(height: 12),
                     TextField(
+                      controller: hoursController,
                       keyboardType: TextInputType.number,
                       decoration: const InputDecoration(
                         labelText: '小时',
                         border: OutlineInputBorder(),
                       ),
-                      onChanged: (value) => hoursInput = value,
                     ),
                     const SizedBox(height: 12),
                     TextField(
+                      controller: minutesController,
                       keyboardType: TextInputType.number,
                       decoration: const InputDecoration(
                         labelText: '分钟',
                         border: OutlineInputBorder(),
                       ),
-                      onChanged: (value) => minutesInput = value,
                     ),
                     const SizedBox(height: 12),
                     TextField(
@@ -155,8 +211,8 @@ class _EventListScreenState extends State<EventListScreen> {
                 ),
                 ElevatedButton(
                   onPressed: () async {
-                    int hours = int.tryParse(hoursInput.trim()) ?? 0;
-                    int minutes = int.tryParse(minutesInput.trim()) ?? 0;
+                    int hours = int.tryParse(hoursController.text.trim()) ?? 0;
+                    int minutes = int.tryParse(minutesController.text.trim()) ?? 0;
 
                     if (minutes < 0 || minutes > 59) {
                       ScaffoldMessenger.of(context).showSnackBar(
@@ -183,8 +239,7 @@ class _EventListScreenState extends State<EventListScreen> {
                       return;
                     }
 
-                    final linkedTodo =
-                        await _todoService.findTodoById(linkedTodoId!);
+                    final linkedTodo = await _todoService.findTodoById(linkedTodoId!);
                     if (!context.mounted) {
                       return;
                     }
@@ -230,15 +285,13 @@ class _EventListScreenState extends State<EventListScreen> {
     );
   }
 
-  Color _colorForType(EventType type) {
-    switch (type) {
-      case EventType.work:
-        return Colors.blue;
-      case EventType.study:
-        return Colors.green;
-      case EventType.play:
-        return Colors.orange;
-    }
+  Color _colorForEvent(TimeEvent event) {
+    return _todoColorMap[event.linkedTodoId] ??
+        switch (event.type) {
+          EventType.work => Colors.blue,
+          EventType.study => Colors.green,
+          EventType.play => Colors.orange,
+        };
   }
 
   @override
@@ -254,6 +307,15 @@ class _EventListScreenState extends State<EventListScreen> {
                 icon: const Icon(Icons.close),
               )
             : null,
+        actions: widget.isSelectionMode
+            ? null
+            : [
+                IconButton(
+                  onPressed: _showSettingsDialog,
+                  icon: const Icon(Icons.settings_outlined),
+                  tooltip: '设置',
+                ),
+              ],
       ),
       body: widget.events.isEmpty
           ? const Center(child: Text('暂无事件，请点击 + 添加'))
@@ -266,7 +328,7 @@ class _EventListScreenState extends State<EventListScreen> {
 
                 return Card(
                   margin: const EdgeInsets.symmetric(vertical: 6),
-                  color: isSelected ? Colors.grey[200] : null,
+                  color: isSelected ? Colors.blue.shade50 : Colors.white,
                   child: ListTile(
                     leading: widget.isSelectionMode
                         ? Checkbox(
@@ -282,10 +344,10 @@ class _EventListScreenState extends State<EventListScreen> {
                             },
                           )
                         : Container(
-                            width: 8,
+                            width: 10,
                             decoration: BoxDecoration(
-                              color: _colorForType(event.type),
-                              borderRadius: BorderRadius.circular(4),
+                              color: _colorForEvent(event),
+                              borderRadius: BorderRadius.circular(999),
                             ),
                           ),
                     title: Text(event.description),
@@ -296,32 +358,35 @@ class _EventListScreenState extends State<EventListScreen> {
                         Text(
                           '${event.addedAt.year}-${event.addedAt.month.toString().padLeft(2, '0')}-${event.addedAt.day.toString().padLeft(2, '0')} '
                           '${event.addedAt.hour.toString().padLeft(2, '0')}:${event.addedAt.minute.toString().padLeft(2, '0')}',
-                          style:
-                              const TextStyle(fontSize: 12, color: Colors.grey),
+                          style: const TextStyle(fontSize: 12, color: Colors.grey),
                         ),
                         if (event.linkedTodoTitle != null)
                           Text(
                             '标签: ${event.linkedTodoTitle}',
-                            style: const TextStyle(
-                              fontSize: 12,
-                              color: Colors.grey,
-                            ),
+                            style: const TextStyle(fontSize: 12, color: Colors.grey),
                           ),
                         if (event.note.isNotEmpty)
                           Text(
                             '备注: ${event.note}',
-                            style: const TextStyle(
-                              fontSize: 12,
-                              color: Colors.grey,
-                            ),
+                            style: const TextStyle(fontSize: 12, color: Colors.grey),
                           ),
                       ],
                     ),
+                    onTap: widget.isSelectionMode
+                        ? () {
+                            final newSet = Set<String>.from(widget.selectedIds);
+                            if (isSelected) {
+                              newSet.remove(event.id);
+                            } else {
+                              newSet.add(event.id);
+                            }
+                            widget.onDeleteSelected(newSet);
+                          }
+                        : null,
                     onLongPress: widget.isSelectionMode
                         ? null
                         : () {
-                            final newSet = <String>{event.id};
-                            widget.onDeleteSelected(newSet);
+                            widget.onDeleteSelected({event.id});
                             widget.onToggleSelectionMode();
                           },
                   ),
