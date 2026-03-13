@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 
-import '../app_info.dart';
 import '../models/time_event.dart';
 import '../models/todo_item.dart';
+import 'settings_screen.dart';
 import '../utils/todo_persistence.dart';
 
 class EventListScreen extends StatefulWidget {
@@ -92,13 +92,10 @@ class _EventListScreenState extends State<EventListScreen> {
   }
 
   Future<void> _showSettingsDialog() async {
-    showAboutDialog(
-      context: context,
-      applicationName: appDisplayName,
-      applicationVersion: appVersion,
-      children: const [
-        Text('2.0.1 版本包含统计页修复、笔记交互增强与标签颜色能力。'),
-      ],
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => const SettingsScreen(),
+      ),
     );
   }
 
@@ -297,6 +294,7 @@ class _EventListScreenState extends State<EventListScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      floatingActionButtonAnimator: FloatingActionButtonAnimator.scaling,
       appBar: AppBar(
         title: widget.isSelectionMode
             ? Text('已选择 ${widget.selectedIds.length} 项')

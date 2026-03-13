@@ -6,9 +6,12 @@ import 'screens/event_list_screen.dart';
 import 'screens/note_list_screen.dart';
 import 'screens/statistics_screen.dart';
 import 'screens/todo_screen.dart';
+import 'utils/notification_service.dart';
 import 'utils/persistence.dart';
 
-void main() {
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await NotificationService.instance.initialize();
   runApp(const MyApp());
 }
 
@@ -46,6 +49,7 @@ class MyHomePage extends StatefulWidget {
 }
 
 class _MyHomePageState extends State<MyHomePage> {
+  late final PageController _pageController;
   int _currentIndex = 0;
   List<TimeEvent> _events = [];
   Set<String> _selectedIds = {};
@@ -55,7 +59,14 @@ class _MyHomePageState extends State<MyHomePage> {
   @override
   void initState() {
     super.initState();
+    _pageController = PageController();
     _loadEvents();
+  }
+
+  @override
+  void dispose() {
+    _pageController.dispose();
+    super.dispose();
   }
 
   Future<void> _loadEvents() async {
@@ -159,17 +170,33 @@ class _MyHomePageState extends State<MyHomePage> {
         }
       },
       child: Scaffold(
-        body: screens[_currentIndex],
-        bottomNavigationBar: BottomNavigationBar(
-          backgroundColor: Colors.white,
-          currentIndex: _currentIndex,
-          onTap: (index) {
+        body: PageView(
+          controller: _pageController,
+          onPageChanged: (index) {
             if (_isSelectionMode && index != 0) {
               _toggleSelectionMode();
             }
             setState(() {
               _currentIndex = index;
             });
+          },
+          children: screens,
+        ),
+        bottomNavigationBar: BottomNavigationBar(
+          backgroundColor: Colors.white,
+          currentIndex: _currentIndex,
+          onTap: (index) async {
+            if (_isSelectionMode && index != 0) {
+              _toggleSelectionMode();
+            }
+            setState(() {
+              _currentIndex = index;
+            });
+            await _pageController.animateToPage(
+              index,
+              duration: const Duration(milliseconds: 260),
+              curve: Curves.easeOutCubic,
+            );
           },
           items: const [
             BottomNavigationBarItem(icon: Icon(Icons.list), label: '列表'),

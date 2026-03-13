@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../models/todo_item.dart';
+import '../utils/notification_service.dart';
 import '../utils/todo_persistence.dart';
 
 class TodoScreen extends StatefulWidget {
@@ -208,6 +209,20 @@ class _TodoScreenState extends State<TodoScreen> {
     await _loadTodos();
   }
 
+  Future<void> _sendReminder(TodoItem item) async {
+    await NotificationService.instance.showTodoReminder(
+      id: item.id.hashCode,
+      title: '${item.title} 提醒',
+      body: '今天也可以继续累计次数和时长。',
+    );
+    if (!mounted) {
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('已发送 ${item.title} 的通知提醒')),
+    );
+  }
+
   Future<void> _restoreTodo(TodoItem item) async {
     await _service.restoreTodo(item.id);
     await _loadTodos();
@@ -220,6 +235,7 @@ class _TodoScreenState extends State<TodoScreen> {
     }
 
     return Scaffold(
+      floatingActionButtonAnimator: FloatingActionButtonAnimator.scaling,
       appBar: AppBar(
         title: const Text('待办'),
       ),
@@ -282,6 +298,12 @@ class _TodoScreenState extends State<TodoScreen> {
             ),
             const SizedBox(width: 8),
             Expanded(child: Text(item.title)),
+            if (!archived)
+              IconButton(
+                tooltip: '发送提醒',
+                onPressed: () => _sendReminder(item),
+                icon: const Icon(Icons.alarm),
+              ),
             if (item.isSystem)
               Padding(
                 padding: const EdgeInsets.only(left: 8),

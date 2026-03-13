@@ -83,6 +83,7 @@ class _NoteEditorScreenState extends State<NoteEditorScreen> {
             fontSize: 18,
             height: 1.55,
             fontWeight: FontWeight.w500,
+            color: Colors.black87,
           ),
         ),
         placeHolder: base.placeHolder?.copyWith(
@@ -120,9 +121,12 @@ class _NoteEditorScreenState extends State<NoteEditorScreen> {
             ),
             QuillSimpleToolbar(
               controller: _quillController,
-              config: const QuillSimpleToolbarConfig(
+              config: QuillSimpleToolbarConfig(
                 multiRowsDisplay: false,
                 showClipboardPaste: true,
+                showDividers: false,
+                color: Colors.white,
+                sectionDividerColor: Colors.grey.shade300,
               ),
             ),
             Expanded(

@@ -188,7 +188,18 @@ class _NoteListScreenState extends State<NoteListScreen> {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
-    return Scaffold(
+    return PopScope(
+      canPop: !_isSelectionMode,
+      onPopInvokedWithResult: (didPop, result) {
+        if (!didPop && _isSelectionMode) {
+          setState(() {
+            _isSelectionMode = false;
+            _selectedIds.clear();
+          });
+        }
+      },
+      child: Scaffold(
+      floatingActionButtonAnimator: FloatingActionButtonAnimator.scaling,
       appBar: AppBar(
         title: _isSelectionMode ? Text('已选择 ${_selectedIds.length} 项') : const Text('笔记'),
         leading: _isSelectionMode
@@ -244,6 +255,7 @@ class _NoteListScreenState extends State<NoteListScreen> {
               onPressed: _openEditor,
               child: const Icon(Icons.add),
             ),
+    ),
     );
   }
 }
