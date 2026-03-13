@@ -1,8 +1,8 @@
-// lib/screens/statistics_screen.dart
 import 'dart:math' as math;
 
-import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
+import 'package:flutter/material.dart';
+
 import '../models/time_event.dart';
 
 class StatisticsScreen extends StatelessWidget {
@@ -12,21 +12,24 @@ class StatisticsScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // 计算总时间
     final totalMinutes = events.fold(0, (sum, e) => sum + e.totalMinutes);
     final totalHours = totalMinutes ~/ 60;
     final remainingMinutes = totalMinutes % 60;
 
-    // 按日期分组（最新在前）
     final Map<String, Map<EventType, int>> dailyData = {};
     for (var event in events) {
-      final dateKey = '${event.addedAt.year}-${event.addedAt.month.toString().padLeft(2, '0')}-${event.addedAt.day.toString().padLeft(2, '0')}';
-      dailyData.putIfAbsent(dateKey, () => {
-        EventType.work: 0,
-        EventType.study: 0,
-        EventType.play: 0,
-      });
-      dailyData[dateKey]![event.type] = dailyData[dateKey]![event.type]! + event.totalMinutes;
+      final dateKey =
+          '${event.addedAt.year}-${event.addedAt.month.toString().padLeft(2, '0')}-${event.addedAt.day.toString().padLeft(2, '0')}';
+      dailyData.putIfAbsent(
+        dateKey,
+        () => {
+          EventType.work: 0,
+          EventType.study: 0,
+          EventType.play: 0,
+        },
+      );
+      dailyData[dateKey]![event.type] =
+          dailyData[dateKey]![event.type]! + event.totalMinutes;
     }
 
     final sortedDates = dailyData.keys.toList()..sort((a, b) => b.compareTo(a));
@@ -34,6 +37,11 @@ class StatisticsScreen extends StatelessWidget {
     if (sortedDates.isEmpty) {
       return const Center(child: Text('暂无数据'));
     }
+
+    final overallMax = dailyData.values
+        .expand((v) => [v[EventType.work]!, v[EventType.study]!, v[EventType.play]!])
+        .fold<int>(0, math.max);
+    final chartMax = math.max(480, ((overallMax + 59) ~/ 60) * 60).toDouble();
 
     return DefaultTabController(
       length: sortedDates.length,
@@ -53,23 +61,24 @@ class StatisticsScreen extends StatelessWidget {
             final studyMin = data[EventType.study]!;
             final playMin = data[EventType.play]!;
 
-            // 找出最大值用于 Y 轴
-            final max = [workMin, studyMin, playMin].reduce(math.max);
-
             return Padding(
-              padding: const EdgeInsets.all(16.0),
+              padding: const EdgeInsets.all(16),
               child: Column(
                 children: [
                   Text(
                     '总时长: $totalHours 小时 $remainingMinutes 分钟',
-                    style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                   const SizedBox(height: 20),
                   SizedBox(
-                    height: 200,
+                    height: 220,
                     child: BarChart(
                       BarChartData(
-                        maxY: max == 0 ? 10 : max.toDouble() * 1.2,
+                        minY: 0,
+                        maxY: chartMax,
                         barGroups: [
                           BarChartGroupData(
                             x: 0,
@@ -123,22 +132,31 @@ class StatisticsScreen extends StatelessWidget {
                               },
                             ),
                           ),
-                          // 在 BarChartData 中配置 leftTitles
                           leftTitles: AxisTitles(
                             sideTitles: SideTitles(
                               showTitles: true,
+                              interval: 60,
+                              reservedSize: 40,
                               getTitlesWidget: (value, meta) {
-                                final hours = value / 60; // 转为小时
                                 return Text(
-                                  '${hours.toStringAsFixed(1)}h',
+                                  '${(value / 60).toStringAsFixed(0)}h',
                                   style: const TextStyle(fontSize: 10),
                                 );
                               },
-                              reservedSize: 40,
                             ),
                           ),
+                          rightTitles: const AxisTitles(
+                            sideTitles: SideTitles(showTitles: false),
+                          ),
+                          topTitles: const AxisTitles(
+                            sideTitles: SideTitles(showTitles: false),
+                          ),
                         ),
-                        gridData: const FlGridData(show: false),
+                        gridData: FlGridData(
+                          show: true,
+                          drawVerticalLine: false,
+                          horizontalInterval: 60,
+                        ),
                         borderData: FlBorderData(show: false),
                         barTouchData: BarTouchData(enabled: false),
                       ),
