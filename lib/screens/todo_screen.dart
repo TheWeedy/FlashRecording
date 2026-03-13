@@ -39,127 +39,40 @@ class _TodoScreenState extends State<TodoScreen> {
 
   Future<void> _showCreateTodoDialog() async {
     final titleController = TextEditingController();
-    TodoMetricType metricType = TodoMetricType.count;
 
-    await showDialog<void>(
-      context: context,
-      builder: (dialogContext) {
-        final navigator = Navigator.of(dialogContext);
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
-            return AlertDialog(
-              title: const Text('新增待办'),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  TextField(
-                    controller: titleController,
-                    decoration: const InputDecoration(
-                      labelText: '标题',
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  DropdownButtonFormField<TodoMetricType>(
-                    initialValue: metricType,
-                    decoration: const InputDecoration(
-                      labelText: '累计方式',
-                      border: OutlineInputBorder(),
-                    ),
-                    items: const [
-                      DropdownMenuItem(
-                        value: TodoMetricType.count,
-                        child: Text('次数'),
-                      ),
-                      DropdownMenuItem(
-                        value: TodoMetricType.duration,
-                        child: Text('时长'),
-                      ),
-                    ],
-                    onChanged: (value) {
-                      if (value == null) {
-                        return;
-                      }
-                      setDialogState(() {
-                        metricType = value;
-                      });
-                    },
-                  ),
-                ],
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.of(dialogContext).pop(),
-                  child: const Text('取消'),
-                ),
-                ElevatedButton(
-                  onPressed: () async {
-                    final title = titleController.text.trim();
-                    if (title.isEmpty) {
-                      return;
-                    }
-
-                    await _service.createTodo(
-                      title: title,
-                      metricType: metricType,
-                    );
-                    if (!mounted) {
-                      return;
-                    }
-                    navigator.pop();
-                    await _loadTodos();
-                  },
-                  child: const Text('保存'),
-                ),
-              ],
-            );
-          },
-        );
-      },
-    );
-  }
-
-  Future<void> _incrementTodo(TodoItem item) async {
-    if (item.metricType == TodoMetricType.count) {
-      await _service.incrementTodo(item, 1);
-      await _loadTodos();
-      return;
-    }
-
-    final controller = TextEditingController(text: '30');
     await showDialog<void>(
       context: context,
       builder: (dialogContext) {
         final navigator = Navigator.of(dialogContext);
         return AlertDialog(
-          title: const Text('增加时长'),
+          title: const Text('新增待办标签'),
           content: TextField(
-            controller: controller,
-            keyboardType: TextInputType.number,
+            controller: titleController,
             decoration: const InputDecoration(
-              labelText: '分钟',
+              labelText: '标题',
               border: OutlineInputBorder(),
             ),
           ),
           actions: [
             TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(),
+              onPressed: navigator.pop,
               child: const Text('取消'),
             ),
             ElevatedButton(
               onPressed: () async {
-                final minutes = int.tryParse(controller.text.trim()) ?? 0;
-                if (minutes <= 0) {
+                final title = titleController.text.trim();
+                if (title.isEmpty) {
                   return;
                 }
-                await _service.incrementTodo(item, minutes);
+
+                await _service.createTodo(title: title);
                 if (!mounted) {
                   return;
                 }
                 navigator.pop();
                 await _loadTodos();
               },
-              child: const Text('确定'),
+              child: const Text('保存'),
             ),
           ],
         );
@@ -247,30 +160,20 @@ class _TodoScreenState extends State<TodoScreen> {
               ),
           ],
         ),
-        subtitle: Text('${item.metricLabel} · ${item.progressLabel}'),
-        trailing: Wrap(
-          spacing: 4,
-          children: [
-            if (!archived)
-              IconButton(
-                tooltip: item.metricType == TodoMetricType.count ? '加一次' : '加时长',
-                onPressed: () => _incrementTodo(item),
-                icon: const Icon(Icons.add_circle_outline),
-              ),
-            if (archived)
-              IconButton(
+        subtitle: Text(item.summaryLabel),
+        trailing: archived
+            ? IconButton(
                 tooltip: '恢复',
                 onPressed: () => _restoreTodo(item),
                 icon: const Icon(Icons.unarchive_outlined),
               )
-            else if (!item.isSystem)
-              IconButton(
-                tooltip: '归档',
-                onPressed: () => _archiveTodo(item),
-                icon: const Icon(Icons.archive_outlined),
-              ),
-          ],
-        ),
+            : item.isSystem
+                ? null
+                : IconButton(
+                    tooltip: '归档',
+                    onPressed: () => _archiveTodo(item),
+                    icon: const Icon(Icons.archive_outlined),
+                  ),
       ),
     );
   }

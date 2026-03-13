@@ -7,7 +7,7 @@ class LocalDatabase {
   static final LocalDatabase instance = LocalDatabase._();
 
   static const _databaseName = 'record_my_time.db';
-  static const _databaseVersion = 2;
+  static const _databaseVersion = 3;
 
   Database? _database;
 
@@ -39,6 +39,17 @@ class LocalDatabase {
             )
           ''');
         }
+        if (oldVersion < 3) {
+          await db.execute(
+            'ALTER TABLE time_events ADD COLUMN linked_todo_id TEXT',
+          );
+          await db.execute(
+            'ALTER TABLE time_events ADD COLUMN linked_todo_title TEXT',
+          );
+          await db.execute(
+            "ALTER TABLE time_events ADD COLUMN record_mode TEXT NOT NULL DEFAULT 'duration'",
+          );
+        }
       },
     );
 
@@ -54,7 +65,10 @@ class LocalDatabase {
         description TEXT NOT NULL,
         note TEXT NOT NULL DEFAULT '',
         added_at TEXT NOT NULL,
-        type TEXT NOT NULL
+        type TEXT NOT NULL,
+        linked_todo_id TEXT,
+        linked_todo_title TEXT,
+        record_mode TEXT NOT NULL DEFAULT 'duration'
       )
     ''');
 

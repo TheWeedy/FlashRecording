@@ -1,13 +1,16 @@
 import 'package:flutter/material.dart';
+
 import '../models/time_event.dart';
+import '../models/todo_item.dart';
+import '../utils/todo_persistence.dart';
 
 class EventListScreen extends StatefulWidget {
   final List<TimeEvent> events;
-  final Function(TimeEvent) onAdd;
-  final Function(Set<String>) onDeleteSelected;
+  final void Function(TimeEvent) onAdd;
+  final void Function(Set<String>) onDeleteSelected;
   final bool isSelectionMode;
   final Set<String> selectedIds;
-  final Function() onToggleSelectionMode;
+  final VoidCallback onToggleSelectionMode;
 
   const EventListScreen({
     super.key,
@@ -24,24 +27,85 @@ class EventListScreen extends StatefulWidget {
 }
 
 class _EventListScreenState extends State<EventListScreen> {
+  final TodoPersistenceService _todoService = TodoPersistenceService();
+  List<TodoItem> _availableTodos = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadAvailableTodos();
+  }
+
+  Future<void> _loadAvailableTodos() async {
+    final todos = await _todoService.loadAvailableTagTodos();
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _availableTodos = todos;
+    });
+  }
+
+  EventType _typeForTodoId(String? todoId) {
+    switch (todoId) {
+      case 'system-work':
+        return EventType.work;
+      case 'system-study':
+        return EventType.study;
+      case 'system-play':
+        return EventType.play;
+      default:
+        return EventType.study;
+    }
+  }
+
   Future<void> _showAddEventDialog(BuildContext context) async {
-    final TextEditingController descController = TextEditingController();
-    final TextEditingController noteController = TextEditingController();
+    final descController = TextEditingController();
+    final noteController = TextEditingController();
     String hoursInput = '0';
     String minutesInput = '0';
-    EventType selectedType = EventType.study;
+    String? linkedTodoId = 'system-study';
 
-    await showDialog(
+    await _loadAvailableTodos();
+
+    if (!context.mounted) {
+      return;
+    }
+
+    await showDialog<void>(
       context: context,
-      builder: (BuildContext context) {
+      builder: (dialogContext) {
+        final navigator = Navigator.of(dialogContext);
         return StatefulBuilder(
           builder: (context, setDialogState) {
             return AlertDialog(
-              title: const Text('添加新事件'),
+              title: const Text('添加新记录'),
               content: SingleChildScrollView(
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
+                    DropdownButtonFormField<String?>(
+                      initialValue: linkedTodoId,
+                      decoration: const InputDecoration(
+                        labelText: '待办标签',
+                        border: OutlineInputBorder(),
+                      ),
+                      items: _availableTodos
+                          .map(
+                            (todo) => DropdownMenuItem<String?>(
+                              value: todo.id,
+                              child: Text(todo.title),
+                            ),
+                          )
+                          .toList(),
+                      onChanged: (value) {
+                        setDialogState(() {
+                          linkedTodoId = value;
+                        });
+                      },
+                    ),
+                    const SizedBox(height: 12),
                     TextField(
                       keyboardType: TextInputType.number,
                       decoration: const InputDecoration(
@@ -60,38 +124,6 @@ class _EventListScreenState extends State<EventListScreen> {
                       onChanged: (value) => minutesInput = value,
                     ),
                     const SizedBox(height: 12),
-                    InputDecorator(
-                      decoration: const InputDecoration(
-                        labelText: '类型',
-                        border: OutlineInputBorder(),
-                      ),
-                      child: DropdownButtonHideUnderline(
-                        child: DropdownButton<EventType>(
-                          value: selectedType,
-                          isDense: true,
-                          onChanged: (EventType? newValue) {
-                            if (newValue != null) {
-                              setDialogState(() {
-                                selectedType = newValue;
-                              });
-                            }
-                          },
-                          items: EventType.values.map((EventType type) {
-                            return DropdownMenuItem<EventType>(
-                              value: type,
-                              child: Text(
-                                type == EventType.work
-                                    ? '工作'
-                                    : type == EventType.study
-                                    ? '学习'
-                                    : '玩',
-                              ),
-                            );
-                          }).toList(),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
                     TextField(
                       controller: descController,
                       minLines: 1,
@@ -99,7 +131,7 @@ class _EventListScreenState extends State<EventListScreen> {
                       keyboardType: TextInputType.multiline,
                       textInputAction: TextInputAction.newline,
                       decoration: const InputDecoration(
-                        labelText: '事件描述',
+                        labelText: '记录描述',
                         alignLabelWithHint: true,
                         border: OutlineInputBorder(),
                       ),
@@ -118,11 +150,11 @@ class _EventListScreenState extends State<EventListScreen> {
               ),
               actions: [
                 TextButton(
-                  onPressed: () => Navigator.of(context).pop(),
+                  onPressed: navigator.pop,
                   child: const Text('取消'),
                 ),
                 ElevatedButton(
-                  onPressed: () {
+                  onPressed: () async {
                     int hours = int.tryParse(hoursInput.trim()) ?? 0;
                     int minutes = int.tryParse(minutesInput.trim()) ?? 0;
 
@@ -132,14 +164,40 @@ class _EventListScreenState extends State<EventListScreen> {
                       );
                       return;
                     }
-                    if (hours < 0) hours = 0;
-                    if (minutes < 0) minutes = 0;
+                    if (hours < 0) {
+                      hours = 0;
+                    }
+                    if (minutes < 0) {
+                      minutes = 0;
+                    }
                     if (descController.text.trim().isEmpty) {
                       ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('请输入事件描述')),
+                        const SnackBar(content: Text('请输入记录描述')),
                       );
                       return;
                     }
+                    if (linkedTodoId == null) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('请选择待办标签')),
+                      );
+                      return;
+                    }
+
+                    final linkedTodo =
+                        await _todoService.findTodoById(linkedTodoId!);
+                    if (!context.mounted) {
+                      return;
+                    }
+                    if (linkedTodo == null) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('待办标签不存在')),
+                      );
+                      return;
+                    }
+
+                    final recordMode = hours == 0 && minutes == 0
+                        ? EventRecordMode.count
+                        : EventRecordMode.duration;
 
                     final newEvent = TimeEvent(
                       id: DateTime.now().microsecondsSinceEpoch.toString(),
@@ -148,11 +206,19 @@ class _EventListScreenState extends State<EventListScreen> {
                       description: descController.text.trim(),
                       note: noteController.text.trim(),
                       addedAt: DateTime.now(),
-                      type: selectedType,
+                      type: _typeForTodoId(linkedTodo.id),
+                      linkedTodoId: linkedTodo.id,
+                      linkedTodoTitle: linkedTodo.title,
+                      recordMode: recordMode,
                     );
 
                     widget.onAdd(newEvent);
-                    Navigator.of(context).pop();
+
+                    if (!mounted) {
+                      return;
+                    }
+                    navigator.pop();
+                    await _loadAvailableTodos();
                   },
                   child: const Text('添加'),
                 ),
@@ -162,6 +228,17 @@ class _EventListScreenState extends State<EventListScreen> {
         );
       },
     );
+  }
+
+  Color _colorForType(EventType type) {
+    switch (type) {
+      case EventType.work:
+        return Colors.blue;
+      case EventType.study:
+        return Colors.green;
+      case EventType.play:
+        return Colors.orange;
+    }
   }
 
   @override
@@ -194,7 +271,7 @@ class _EventListScreenState extends State<EventListScreen> {
                     leading: widget.isSelectionMode
                         ? Checkbox(
                             value: isSelected,
-                            onChanged: (bool? value) {
+                            onChanged: (value) {
                               final newSet = Set<String>.from(widget.selectedIds);
                               if (value == true) {
                                 newSet.add(event.id);
@@ -207,11 +284,7 @@ class _EventListScreenState extends State<EventListScreen> {
                         : Container(
                             width: 8,
                             decoration: BoxDecoration(
-                              color: event.type == EventType.work
-                                  ? Colors.blue
-                                  : event.type == EventType.study
-                                      ? Colors.green
-                                      : Colors.orange,
+                              color: _colorForType(event.type),
                               borderRadius: BorderRadius.circular(4),
                             ),
                           ),
@@ -223,13 +296,17 @@ class _EventListScreenState extends State<EventListScreen> {
                         Text(
                           '${event.addedAt.year}-${event.addedAt.month.toString().padLeft(2, '0')}-${event.addedAt.day.toString().padLeft(2, '0')} '
                           '${event.addedAt.hour.toString().padLeft(2, '0')}:${event.addedAt.minute.toString().padLeft(2, '0')}',
-                          style: const TextStyle(fontSize: 12, color: Colors.grey),
-                        ),
-                        Text(
-                          '类型: ${event.typeName}',
                           style:
                               const TextStyle(fontSize: 12, color: Colors.grey),
                         ),
+                        if (event.linkedTodoTitle != null)
+                          Text(
+                            '标签: ${event.linkedTodoTitle}',
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: Colors.grey,
+                            ),
+                          ),
                         if (event.note.isNotEmpty)
                           Text(
                             '备注: ${event.note}',
@@ -243,8 +320,7 @@ class _EventListScreenState extends State<EventListScreen> {
                     onLongPress: widget.isSelectionMode
                         ? null
                         : () {
-                            final newSet = <String>{};
-                            newSet.add(event.id);
+                            final newSet = <String>{event.id};
                             widget.onDeleteSelected(newSet);
                             widget.onToggleSelectionMode();
                           },
