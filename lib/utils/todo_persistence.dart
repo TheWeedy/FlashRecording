@@ -2,27 +2,31 @@ import 'package:flutter/material.dart';
 import 'package:sqflite/sqflite.dart';
 
 import '../models/todo_item.dart';
+import 'cloud_sync_service.dart';
 import 'local_database.dart';
 
 class TodoPersistenceService {
   static const seedTodos = {
-    'system-work': _SeedTodo('工作', 0xFF3B82F6),
-    'system-study': _SeedTodo('学习', 0xFF22C55E),
-    'system-play': _SeedTodo('娱乐', 0xFFF97316),
+    'system-work': _SeedTodo('工作', 0xFF3B82F6, 0),
+    'system-study': _SeedTodo('学习', 0xFF22C55E, 1),
+    'system-play': _SeedTodo('娱乐', 0xFFF97316, 2),
   };
 
   Future<List<TodoItem>> loadActiveTodos() async {
     await _ensureSeedTodos();
+    await _normalizeSortOrder();
     return _loadTodos(archived: false);
   }
 
   Future<List<TodoItem>> loadArchivedTodos() async {
     await _ensureSeedTodos();
+    await _normalizeSortOrder();
     return _loadTodos(archived: true);
   }
 
   Future<List<TodoItem>> loadAvailableTagTodos() async {
     await _ensureSeedTodos();
+    await _normalizeSortOrder();
     return _loadTodos(archived: false);
   }
 
@@ -31,6 +35,11 @@ class TodoPersistenceService {
     int colorValue = 0xFF14B8A6,
   }) async {
     final db = await LocalDatabase.instance.database;
+    final rows = await db.rawQuery(
+      'SELECT COALESCE(MAX(sort_order), -1) AS max_sort_order FROM todo_items',
+    );
+    final nextSortOrder = _asInt(rows.first['max_sort_order']) + 1;
+    final now = DateTime.now().toIso8601String();
     await db.insert('todo_items', {
       'id': DateTime.now().microsecondsSinceEpoch.toString(),
       'title': title,
@@ -38,9 +47,29 @@ class TodoPersistenceService {
       'progress_value': 0,
       'is_system': 0,
       'color_value': colorValue,
-      'created_at': DateTime.now().toIso8601String(),
+      'sort_order': nextSortOrder,
+      'created_at': now,
+      'updated_at': now,
       'archived_at': null,
     });
+    CloudSyncService.instance.scheduleSync();
+  }
+
+  Future<void> updateTodoTitle({
+    required String id,
+    required String title,
+  }) async {
+    final db = await LocalDatabase.instance.database;
+    await db.update(
+      'todo_items',
+      {
+        'title': title,
+        'updated_at': DateTime.now().toIso8601String(),
+      },
+      where: 'id = ? AND is_system = 0',
+      whereArgs: [id],
+    );
+    CloudSyncService.instance.scheduleSync();
   }
 
   Future<void> updateTodoColor({
@@ -52,10 +81,31 @@ class TodoPersistenceService {
       'todo_items',
       {
         'color_value': colorValue,
+        'updated_at': DateTime.now().toIso8601String(),
       },
       where: 'id = ?',
       whereArgs: [id],
     );
+    CloudSyncService.instance.scheduleSync();
+  }
+
+  Future<void> updateTodoOrder(List<String> orderedIds) async {
+    final db = await LocalDatabase.instance.database;
+    final batch = db.batch();
+    final now = DateTime.now().toIso8601String();
+    for (var index = 0; index < orderedIds.length; index++) {
+      batch.update(
+        'todo_items',
+        {
+          'sort_order': index,
+          'updated_at': now,
+        },
+        where: 'id = ?',
+        whereArgs: [orderedIds[index]],
+      );
+    }
+    await batch.commit(noResult: true);
+    CloudSyncService.instance.scheduleSync();
   }
 
   Future<Map<String, Color>> loadTodoColorMap() async {
@@ -77,10 +127,12 @@ class TodoPersistenceService {
       'todo_items',
       {
         'archived_at': DateTime.now().toIso8601String(),
+        'updated_at': DateTime.now().toIso8601String(),
       },
       where: 'id = ? AND is_system = 0',
       whereArgs: [id],
     );
+    CloudSyncService.instance.scheduleSync();
   }
 
   Future<void> restoreTodo(String id) async {
@@ -89,10 +141,12 @@ class TodoPersistenceService {
       'todo_items',
       {
         'archived_at': null,
+        'updated_at': DateTime.now().toIso8601String(),
       },
       where: 'id = ?',
       whereArgs: [id],
     );
+    CloudSyncService.instance.scheduleSync();
   }
 
   Future<TodoItem?> findTodoById(String id) async {
@@ -155,7 +209,7 @@ class TodoPersistenceService {
       LEFT JOIN time_events e ON e.linked_todo_id = t.id
       WHERE ${archived ? 't.archived_at IS NOT NULL' : 't.archived_at IS NULL'}
       GROUP BY t.id, t.title, t.is_system, t.created_at, t.archived_at
-      ORDER BY t.is_system DESC, t.created_at ASC
+      ORDER BY t.sort_order ASC, t.created_at ASC
       ''',
     );
 
@@ -187,6 +241,44 @@ class TodoPersistenceService {
     return int.tryParse('$value') ?? 0;
   }
 
+  Future<void> _normalizeSortOrder() async {
+    final db = await LocalDatabase.instance.database;
+    final rows = await db.query(
+      'todo_items',
+      columns: ['id'],
+      orderBy: 'sort_order ASC, is_system DESC, created_at ASC',
+    );
+    final batch = db.batch();
+    var hasChange = false;
+    final now = DateTime.now().toIso8601String();
+    for (var index = 0; index < rows.length; index++) {
+      final id = rows[index]['id'] as String;
+      final currentOrderRows = await db.query(
+        'todo_items',
+        columns: ['sort_order'],
+        where: 'id = ?',
+        whereArgs: [id],
+        limit: 1,
+      );
+      final currentOrder = _asInt(currentOrderRows.first['sort_order']);
+      if (currentOrder != index) {
+        hasChange = true;
+        batch.update(
+          'todo_items',
+          {
+            'sort_order': index,
+            'updated_at': now,
+          },
+          where: 'id = ?',
+          whereArgs: [id],
+        );
+      }
+    }
+    if (hasChange) {
+      await batch.commit(noResult: true);
+    }
+  }
+
   Future<void> _ensureSeedTodos() async {
     final db = await LocalDatabase.instance.database;
     final batch = db.batch();
@@ -201,8 +293,9 @@ class TodoPersistenceService {
           'progress_value': 0,
           'is_system': 1,
           'color_value': entry.value.colorValue,
-          'created_at': DateTime.fromMillisecondsSinceEpoch(0)
-              .toIso8601String(),
+          'sort_order': entry.value.sortOrder,
+          'created_at': DateTime.fromMillisecondsSinceEpoch(0).toIso8601String(),
+          'updated_at': DateTime.fromMillisecondsSinceEpoch(0).toIso8601String(),
           'archived_at': null,
         },
         conflictAlgorithm: ConflictAlgorithm.ignore,
@@ -234,6 +327,7 @@ class TodoPersistenceService {
 class _SeedTodo {
   final String title;
   final int colorValue;
+  final int sortOrder;
 
-  const _SeedTodo(this.title, this.colorValue);
+  const _SeedTodo(this.title, this.colorValue, this.sortOrder);
 }

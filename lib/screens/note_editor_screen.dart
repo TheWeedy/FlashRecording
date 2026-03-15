@@ -16,11 +16,16 @@ class NoteEditorScreen extends StatefulWidget {
 }
 
 class _NoteEditorScreenState extends State<NoteEditorScreen> {
+  static const _noteFontFamily = 'sans-serif';
+
   final NotePersistenceService _service = NotePersistenceService();
   late final TextEditingController _titleController;
   late final QuillController _quillController;
   late final FocusNode _editorFocusNode;
   late final ScrollController _editorScrollController;
+  late final String _initialTitle;
+  late final String _initialDeltaJson;
+  bool _isSaving = false;
 
   @override
   void initState() {
@@ -38,6 +43,8 @@ class _NoteEditorScreenState extends State<NoteEditorScreen> {
       selection: const TextSelection.collapsed(offset: 0),
       readOnly: false,
     );
+    _initialTitle = _titleController.text.trim();
+    _initialDeltaJson = jsonEncode(_quillController.document.toDelta().toJson());
   }
 
   @override
@@ -49,7 +56,18 @@ class _NoteEditorScreenState extends State<NoteEditorScreen> {
     super.dispose();
   }
 
+  bool get _hasChanges {
+    final currentTitle = _titleController.text.trim();
+    final currentDeltaJson = jsonEncode(_quillController.document.toDelta().toJson());
+    return currentTitle != _initialTitle || currentDeltaJson != _initialDeltaJson;
+  }
+
   Future<void> _saveNote() async {
+    if (_isSaving) {
+      return;
+    }
+    _isSaving = true;
+
     final plainText = _quillController.document.toPlainText().trim();
     final title = _titleController.text.trim().isEmpty
         ? (plainText.isEmpty ? '未命名笔记' : plainText.split('\n').first)
@@ -67,10 +85,26 @@ class _NoteEditorScreenState extends State<NoteEditorScreen> {
     );
 
     await _service.upsertNote(note);
+    _isSaving = false;
     if (!mounted) {
       return;
     }
     Navigator.of(context).pop(true);
+  }
+
+  Future<void> _handleBackNavigation() async {
+    if (_isSaving) {
+      return;
+    }
+    final plainText = _quillController.document.toPlainText().trim();
+    final title = _titleController.text.trim();
+    if (!_hasChanges || (title.isEmpty && plainText.isEmpty)) {
+      if (mounted) {
+        Navigator.of(context).pop(false);
+      }
+      return;
+    }
+    await _saveNote();
   }
 
   DefaultStyles _editorStyles(BuildContext context) {
@@ -80,6 +114,7 @@ class _NoteEditorScreenState extends State<NoteEditorScreen> {
       DefaultStyles(
         paragraph: paragraph.copyWith(
           style: paragraph.style.copyWith(
+            fontFamily: _noteFontFamily,
             fontSize: 18,
             height: 1.55,
             fontWeight: FontWeight.w500,
@@ -87,7 +122,26 @@ class _NoteEditorScreenState extends State<NoteEditorScreen> {
           ),
         ),
         placeHolder: base.placeHolder?.copyWith(
-          style: base.placeHolder?.style.copyWith(fontSize: 18, height: 1.55),
+          style: base.placeHolder?.style.copyWith(
+            fontFamily: _noteFontFamily,
+            fontSize: 18,
+            height: 1.55,
+            color: Colors.black45,
+          ),
+        ),
+        h1: base.h1?.copyWith(
+          style: base.h1?.style.copyWith(
+            fontFamily: _noteFontFamily,
+            fontWeight: FontWeight.w800,
+            color: Colors.black87,
+          ),
+        ),
+        h2: base.h2?.copyWith(
+          style: base.h2?.style.copyWith(
+            fontFamily: _noteFontFamily,
+            fontWeight: FontWeight.w700,
+            color: Colors.black87,
+          ),
         ),
       ),
     );
@@ -95,53 +149,70 @@ class _NoteEditorScreenState extends State<NoteEditorScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(widget.initialNote == null ? '新建笔记' : '编辑笔记'),
-        actions: [
-          TextButton(
-            onPressed: _saveNote,
-            child: const Text('保存'),
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) {
+        if (!didPop) {
+          _handleBackNavigation();
+        }
+      },
+      child: Scaffold(
+        appBar: AppBar(
+          leading: IconButton(
+            onPressed: _handleBackNavigation,
+            icon: const Icon(Icons.arrow_back),
           ),
-        ],
-      ),
-      body: SafeArea(
-        child: Column(
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-              child: TextField(
-                controller: _titleController,
-                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
-                decoration: const InputDecoration(
-                  labelText: '标题',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-            ),
-            QuillSimpleToolbar(
-              controller: _quillController,
-              config: QuillSimpleToolbarConfig(
-                multiRowsDisplay: false,
-                showClipboardPaste: true,
-                showDividers: false,
-                color: Colors.white,
-                sectionDividerColor: Colors.grey.shade300,
-              ),
-            ),
-            Expanded(
-              child: QuillEditor.basic(
-                controller: _quillController,
-                focusNode: _editorFocusNode,
-                scrollController: _editorScrollController,
-                config: QuillEditorConfig(
-                  placeholder: '开始记录你的想法...',
-                  padding: const EdgeInsets.all(16),
-                  customStyles: _editorStyles(context),
-                ),
-              ),
+          title: Text(widget.initialNote == null ? '新建笔记' : '编辑笔记'),
+          actions: [
+            TextButton(
+              onPressed: _saveNote,
+              child: const Text('保存'),
             ),
           ],
+        ),
+        body: SafeArea(
+          child: Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+                child: TextField(
+                  controller: _titleController,
+                  style: const TextStyle(
+                    fontFamily: _noteFontFamily,
+                    fontSize: 20,
+                    fontWeight: FontWeight.w800,
+                    color: Colors.black87,
+                  ),
+                  decoration: const InputDecoration(
+                    labelText: '标题',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+              ),
+              QuillSimpleToolbar(
+                controller: _quillController,
+                config: QuillSimpleToolbarConfig(
+                  multiRowsDisplay: true,
+                  showClipboardPaste: true,
+                  showDividers: false,
+                  color: Colors.white,
+                  sectionDividerColor: Colors.grey.shade300,
+                ),
+              ),
+              Expanded(
+                child: QuillEditor.basic(
+                  controller: _quillController,
+                  focusNode: _editorFocusNode,
+                  scrollController: _editorScrollController,
+                  config: QuillEditorConfig(
+                    placeholder: '开始记录你的想法...',
+                    padding: const EdgeInsets.all(16),
+                    customStyles: _editorStyles(context),
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

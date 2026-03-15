@@ -1,9 +1,13 @@
 import 'package:sqflite/sqflite.dart';
 
 import '../models/note_item.dart';
+import 'cloud_sync_service.dart';
+import 'deleted_record_service.dart';
 import 'local_database.dart';
 
 class NotePersistenceService {
+  final DeletedRecordService _deletedRecordService = DeletedRecordService();
+
   Future<List<NoteItem>> loadActiveNotes() async {
     return _loadNotes(archived: false);
   }
@@ -27,26 +31,39 @@ class NotePersistenceService {
       },
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
+    await _deletedRecordService.clearDeletion(
+      entityType: DeletedRecordService.entityNote,
+      entityId: note.id,
+    );
+    CloudSyncService.instance.scheduleSync();
   }
 
   Future<void> archiveNote(String id) async {
     final db = await LocalDatabase.instance.database;
     await db.update(
       'notes',
-      {'archived_at': DateTime.now().toIso8601String()},
+      {
+        'archived_at': DateTime.now().toIso8601String(),
+        'updated_at': DateTime.now().toIso8601String(),
+      },
       where: 'id = ?',
       whereArgs: [id],
     );
+    CloudSyncService.instance.scheduleSync();
   }
 
   Future<void> restoreNote(String id) async {
     final db = await LocalDatabase.instance.database;
     await db.update(
       'notes',
-      {'archived_at': null},
+      {
+        'archived_at': null,
+        'updated_at': DateTime.now().toIso8601String(),
+      },
       where: 'id = ?',
       whereArgs: [id],
     );
+    CloudSyncService.instance.scheduleSync();
   }
 
   Future<void> deleteNotes(Iterable<String> ids) async {
@@ -60,6 +77,13 @@ class NotePersistenceService {
       where: 'id IN ($placeholders)',
       whereArgs: ids.toList(),
     );
+    for (final id in ids) {
+      await _deletedRecordService.recordDeletion(
+        entityType: DeletedRecordService.entityNote,
+        entityId: id,
+      );
+    }
+    CloudSyncService.instance.scheduleSync();
   }
 
   Future<List<NoteItem>> _loadNotes({required bool archived}) async {

@@ -4,12 +4,16 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite/sqflite.dart';
 
 import '../models/time_event.dart';
+import 'cloud_sync_service.dart';
+import 'deleted_record_service.dart';
 import 'local_database.dart';
 
 class PersistenceService {
   static const String _legacyEventsKey = 'events';
   static const String _legacyBackupKey = 'events_legacy_backup';
   static const String _migrationDoneKey = 'events_migration_done';
+
+  final DeletedRecordService _deletedRecordService = DeletedRecordService();
 
   Future<List<TimeEvent>> loadEvents() async {
     await _migrateLegacyEventsIfNeeded();
@@ -50,6 +54,18 @@ class PersistenceService {
   Future<void> saveEvents(List<TimeEvent> events) async {
     final db = await LocalDatabase.instance.database;
     await db.transaction((txn) async {
+      final existingRows = await txn.query('time_events', columns: ['id']);
+      final existingIds = existingRows.map((row) => row['id'] as String).toSet();
+      final nextIds = events.map((event) => event.id).toSet();
+
+      for (final deletedId in existingIds.difference(nextIds)) {
+        await _deletedRecordService.recordDeletion(
+          entityType: DeletedRecordService.entityTimeEvent,
+          entityId: deletedId,
+          executor: txn,
+        );
+      }
+
       await txn.delete('time_events');
       final batch = txn.batch();
       for (final event in events) {
@@ -60,6 +76,7 @@ class PersistenceService {
           'description': event.description,
           'note': event.note,
           'added_at': event.addedAt.toIso8601String(),
+          'updated_at': event.addedAt.toIso8601String(),
           'type': event.type.name,
           'linked_todo_id': event.linkedTodoId,
           'linked_todo_title': event.linkedTodoTitle,
@@ -67,11 +84,20 @@ class PersistenceService {
         });
       }
       await batch.commit(noResult: true);
+
+      for (final event in events) {
+        await _deletedRecordService.clearDeletion(
+          entityType: DeletedRecordService.entityTimeEvent,
+          entityId: event.id,
+          executor: txn,
+        );
+      }
     });
 
     final prefs = await SharedPreferences.getInstance();
     final jsonString = jsonEncode(events.map((e) => e.toJson()).toList());
     await prefs.setString(_legacyEventsKey, jsonString);
+    CloudSyncService.instance.scheduleSync();
   }
 
   Future<void> _migrateLegacyEventsIfNeeded() async {
@@ -115,6 +141,7 @@ class PersistenceService {
           'description': event.description,
           'note': event.note,
           'added_at': event.addedAt.toIso8601String(),
+          'updated_at': event.addedAt.toIso8601String(),
           'type': event.type.name,
           'linked_todo_id': event.linkedTodoId,
           'linked_todo_title': event.linkedTodoTitle,

@@ -1,4 +1,10 @@
+import 'dart:async';
+import 'dart:io';
+
 import 'package:flutter/material.dart';
+import 'package:flutter_quill/flutter_quill.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'app_info.dart';
 import 'models/time_event.dart';
@@ -6,11 +12,19 @@ import 'screens/event_list_screen.dart';
 import 'screens/note_list_screen.dart';
 import 'screens/statistics_screen.dart';
 import 'screens/todo_screen.dart';
+import 'screens/welcome_screen.dart';
+import 'utils/cloud_sync_service.dart';
 import 'utils/notification_service.dart';
 import 'utils/persistence.dart';
 
+const _welcomeSeenKey = 'welcome_seen_v3';
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  if (Platform.isWindows || Platform.isLinux) {
+    sqfliteFfiInit();
+    databaseFactory = databaseFactoryFfi;
+  }
   await NotificationService.instance.initialize();
   runApp(const MyApp());
 }
@@ -22,6 +36,8 @@ class MyApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: '$appDisplayName $appVersion',
+      localizationsDelegates: FlutterQuillLocalizations.localizationsDelegates,
+      supportedLocales: FlutterQuillLocalizations.supportedLocales,
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
         scaffoldBackgroundColor: const Color(0xFFF6F7FB),
@@ -34,8 +50,60 @@ class MyApp extends StatelessWidget {
           elevation: 12,
         ),
       ),
-      home: const MyHomePage(title: '我的时间事件'),
+      home: const AppBootstrap(),
     );
+  }
+}
+
+class AppBootstrap extends StatefulWidget {
+  const AppBootstrap({super.key});
+
+  @override
+  State<AppBootstrap> createState() => _AppBootstrapState();
+}
+
+class _AppBootstrapState extends State<AppBootstrap> {
+  bool? _showWelcome;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadWelcomeState();
+  }
+
+  Future<void> _loadWelcomeState() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _showWelcome = !(prefs.getBool(_welcomeSeenKey) ?? false);
+    });
+  }
+
+  Future<void> _dismissWelcome() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_welcomeSeenKey, true);
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _showWelcome = false;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final showWelcome = _showWelcome;
+    if (showWelcome == null) {
+      return const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
+    if (showWelcome) {
+      return WelcomeScreen(onContinue: _dismissWelcome);
+    }
+    return const MyHomePage(title: '我的时间事件');
   }
 }
 
@@ -60,13 +128,23 @@ class _MyHomePageState extends State<MyHomePage> {
   void initState() {
     super.initState();
     _pageController = PageController();
-    _loadEvents();
+    _bootstrap();
   }
 
   @override
   void dispose() {
     _pageController.dispose();
     super.dispose();
+  }
+
+  Future<void> _bootstrap() async {
+    await _loadEvents();
+    unawaited(_syncAndReload());
+  }
+
+  Future<void> _syncAndReload() async {
+    await CloudSyncService.instance.syncNow();
+    await _loadEvents();
   }
 
   Future<void> _loadEvents() async {
@@ -139,7 +217,7 @@ class _MyHomePageState extends State<MyHomePage> {
       _selectedIds.clear();
       _isSelectionMode = false;
     });
-    _saveEvents();
+    await _saveEvents();
   }
 
   @override

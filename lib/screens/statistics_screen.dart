@@ -670,21 +670,25 @@ class _TimelineColumn extends StatelessWidget {
         border: Border.all(color: Colors.grey.shade300),
       ),
       child: Stack(
+        clipBehavior: Clip.hardEdge,
         children: [
-          Column(
-            children: [
-              for (int i = 0; i < 24; i++)
-                Container(
-                  height: hourRowHeight,
-                  decoration: BoxDecoration(
-                    border: Border(
-                      top: BorderSide(
-                        color: i == 0 ? Colors.transparent : Colors.grey.shade200,
+          Positioned.fill(
+            child: Column(
+              children: [
+                for (int i = 0; i < 24; i++)
+                  Expanded(
+                    child: Container(
+                      decoration: BoxDecoration(
+                        border: Border(
+                          top: BorderSide(
+                            color: i == 0 ? Colors.transparent : Colors.grey.shade200,
+                          ),
+                        ),
                       ),
                     ),
                   ),
-                ),
-            ],
+              ],
+            ),
           ),
           for (final event in events)
             _buildEventOverlay(

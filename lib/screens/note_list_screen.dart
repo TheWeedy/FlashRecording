@@ -1,6 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../models/note_item.dart';
+import '../utils/cloud_sync_service.dart';
 import '../utils/note_persistence.dart';
 import 'note_editor_screen.dart';
 
@@ -24,6 +27,12 @@ class _NoteListScreenState extends State<NoteListScreen> {
   void initState() {
     super.initState();
     _loadNotes();
+    unawaited(_backgroundSync());
+  }
+
+  Future<void> _backgroundSync() async {
+    await CloudSyncService.instance.syncNow();
+    await _loadNotes();
   }
 
   Future<void> _loadNotes() async {
@@ -99,11 +108,6 @@ class _NoteListScreenState extends State<NoteListScreen> {
     await _loadNotes();
   }
 
-  String _formatDateTime(DateTime value) {
-    return '${value.year}-${value.month.toString().padLeft(2, '0')}-${value.day.toString().padLeft(2, '0')} '
-        '${value.hour.toString().padLeft(2, '0')}:${value.minute.toString().padLeft(2, '0')}';
-  }
-
   void _toggleSelection(NoteItem note) {
     setState(() {
       if (_selectedIds.contains(note.id)) {
@@ -116,6 +120,18 @@ class _NoteListScreenState extends State<NoteListScreen> {
         _isSelectionMode = true;
       }
     });
+  }
+
+  void _exitSelectionMode() {
+    setState(() {
+      _isSelectionMode = false;
+      _selectedIds.clear();
+    });
+  }
+
+  String _formatDateTime(DateTime value) {
+    return '${value.year}-${value.month.toString().padLeft(2, '0')}-${value.day.toString().padLeft(2, '0')} '
+        '${value.hour.toString().padLeft(2, '0')}:${value.minute.toString().padLeft(2, '0')}';
   }
 
   Widget _buildNoteCard(NoteItem note, {bool archived = false}) {
@@ -185,77 +201,73 @@ class _NoteListScreenState extends State<NoteListScreen> {
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+      return const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      );
     }
 
     return PopScope(
       canPop: !_isSelectionMode,
       onPopInvokedWithResult: (didPop, result) {
         if (!didPop && _isSelectionMode) {
-          setState(() {
-            _isSelectionMode = false;
-            _selectedIds.clear();
-          });
+          _exitSelectionMode();
         }
       },
       child: Scaffold(
-      floatingActionButtonAnimator: FloatingActionButtonAnimator.scaling,
-      appBar: AppBar(
-        title: _isSelectionMode ? Text('已选择 ${_selectedIds.length} 项') : const Text('笔记'),
-        leading: _isSelectionMode
-            ? IconButton(
-                onPressed: () {
-                  setState(() {
-                    _isSelectionMode = false;
-                    _selectedIds.clear();
-                  });
-                },
-                icon: const Icon(Icons.close),
-              )
-            : null,
-      ),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          if (_notes.isEmpty)
-            const Card(
-              child: Padding(
-                padding: EdgeInsets.all(16),
-                child: Text('还没有笔记，点击右下角开始创建。'),
+        floatingActionButtonAnimator: FloatingActionButtonAnimator.scaling,
+        appBar: AppBar(
+          title: _isSelectionMode
+              ? Text('已选择 ${_selectedIds.length} 项')
+              : const Text('笔记'),
+          leading: _isSelectionMode
+              ? IconButton(
+                  onPressed: _exitSelectionMode,
+                  icon: const Icon(Icons.close),
+                )
+              : null,
+        ),
+        body: ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
+            if (_notes.isEmpty)
+              const Card(
+                child: Padding(
+                  padding: EdgeInsets.all(16),
+                  child: Text('还没有笔记，点击右下角开始创建。'),
+                ),
               ),
-            ),
-          ..._notes.map((note) => _buildNoteCard(note)),
-          const SizedBox(height: 12),
-          ExpansionTile(
-            tilePadding: EdgeInsets.zero,
-            title: Text('已归档 (${_archivedNotes.length})'),
-            children: _archivedNotes.isEmpty
-                ? const [
-                    Padding(
-                      padding: EdgeInsets.only(bottom: 12),
-                      child: Align(
-                        alignment: Alignment.centerLeft,
-                        child: Text('暂无已归档笔记'),
+            ..._notes.map((note) => _buildNoteCard(note)),
+            const SizedBox(height: 12),
+            ExpansionTile(
+              tilePadding: EdgeInsets.zero,
+              title: Text('已归档 (${_archivedNotes.length})'),
+              children: _archivedNotes.isEmpty
+                  ? const [
+                      Padding(
+                        padding: EdgeInsets.only(bottom: 12),
+                        child: Align(
+                          alignment: Alignment.centerLeft,
+                          child: Text('暂无已归档笔记'),
+                        ),
                       ),
-                    ),
-                  ]
-                : _archivedNotes
-                    .map((note) => _buildNoteCard(note, archived: true))
-                    .toList(),
-          ),
-        ],
-      ),
-      floatingActionButton: _isSelectionMode
-          ? FloatingActionButton(
-              onPressed: _deleteSelectedNotes,
-              backgroundColor: Colors.red,
-              child: const Icon(Icons.delete),
-            )
-          : FloatingActionButton(
-              onPressed: _openEditor,
-              child: const Icon(Icons.add),
+                    ]
+                  : _archivedNotes
+                      .map((note) => _buildNoteCard(note, archived: true))
+                      .toList(),
             ),
-    ),
+          ],
+        ),
+        floatingActionButton: _isSelectionMode
+            ? FloatingActionButton(
+                onPressed: _deleteSelectedNotes,
+                backgroundColor: Colors.red,
+                child: const Icon(Icons.delete),
+              )
+            : FloatingActionButton(
+                onPressed: _openEditor,
+                child: const Icon(Icons.add),
+              ),
+      ),
     );
   }
 }

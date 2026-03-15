@@ -1,6 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../models/todo_item.dart';
+import '../utils/cloud_sync_service.dart';
 import '../utils/notification_service.dart';
 import '../utils/todo_persistence.dart';
 
@@ -33,6 +36,12 @@ class _TodoScreenState extends State<TodoScreen> {
   void initState() {
     super.initState();
     _loadTodos();
+    unawaited(_backgroundSync());
+  }
+
+  Future<void> _backgroundSync() async {
+    await CloudSyncService.instance.syncNow();
+    await _loadTodos();
   }
 
   Future<void> _loadTodos() async {
@@ -51,7 +60,7 @@ class _TodoScreenState extends State<TodoScreen> {
 
   Future<void> _showCreateTodoDialog() async {
     final titleController = TextEditingController();
-    int selectedColor = _presetColors[5];
+    var selectedColor = _presetColors[5];
 
     await showDialog<void>(
       context: context,
@@ -138,8 +147,53 @@ class _TodoScreenState extends State<TodoScreen> {
     );
   }
 
+  Future<void> _showEditTodoDialog(TodoItem item) async {
+    final titleController = TextEditingController(text: item.title);
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        final navigator = Navigator.of(dialogContext);
+        return AlertDialog(
+          title: const Text('修改待办标签'),
+          content: TextField(
+            controller: titleController,
+            autofocus: true,
+            decoration: const InputDecoration(
+              labelText: '标题',
+              border: OutlineInputBorder(),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: navigator.pop,
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              onPressed: () async {
+                final title = titleController.text.trim();
+                if (title.isEmpty) {
+                  return;
+                }
+                await _service.updateTodoTitle(
+                  id: item.id,
+                  title: title,
+                );
+                if (!mounted) {
+                  return;
+                }
+                navigator.pop();
+                await _loadTodos();
+              },
+              child: const Text('保存'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   Future<void> _showColorDialog(TodoItem item) async {
-    int selectedColor = item.colorValue;
+    var selectedColor = item.colorValue;
     await showDialog<void>(
       context: context,
       builder: (dialogContext) {
@@ -210,21 +264,40 @@ class _TodoScreenState extends State<TodoScreen> {
   }
 
   Future<void> _sendReminder(TodoItem item) async {
-    await NotificationService.instance.showTodoReminder(
+    final shown = await NotificationService.instance.showTodoReminder(
       id: item.id.hashCode,
       title: '${item.title} 提醒',
-      body: '今天也可以继续累计次数和时长。',
+      body: '今天也可以继续积累次数和时长。',
     );
     if (!mounted) {
       return;
     }
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('已发送 ${item.title} 的通知提醒')),
+      SnackBar(
+        content: Text(
+          shown ? '已发送 ${item.title} 的通知提醒' : '通知权限未开启，请在系统设置中允许通知',
+        ),
+      ),
     );
   }
 
   Future<void> _restoreTodo(TodoItem item) async {
     await _service.restoreTodo(item.id);
+    await _loadTodos();
+  }
+
+  Future<void> _reorderActiveTodos(int oldIndex, int newIndex) async {
+    if (_activeTodos.isEmpty) {
+      return;
+    }
+    setState(() {
+      if (newIndex > oldIndex) {
+        newIndex -= 1;
+      }
+      final item = _activeTodos.removeAt(oldIndex);
+      _activeTodos.insert(newIndex, item);
+    });
+    await _service.updateTodoOrder(_activeTodos.map((item) => item.id).toList());
     await _loadTodos();
   }
 
@@ -239,41 +312,54 @@ class _TodoScreenState extends State<TodoScreen> {
       appBar: AppBar(
         title: const Text('待办'),
       ),
-      body: ListView(
+      body: ReorderableListView(
         padding: const EdgeInsets.all(16),
-        children: [
-          const Text(
-            '进行中',
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 8),
-          if (_activeTodos.isEmpty)
-            const Card(
-              child: Padding(
-                padding: EdgeInsets.all(16),
-                child: Text('暂无待办'),
-              ),
+        onReorder: _reorderActiveTodos,
+        header: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: const [
+            Text(
+              '进行中',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
             ),
-          ..._activeTodos.map(_buildTodoCard),
-          const SizedBox(height: 20),
-          ExpansionTile(
-            tilePadding: EdgeInsets.zero,
-            title: Text('已归档 (${_archivedTodos.length})'),
-            children: _archivedTodos.isEmpty
-                ? const [
-                    Padding(
-                      padding: EdgeInsets.only(bottom: 12),
-                      child: Align(
-                        alignment: Alignment.centerLeft,
-                        child: Text('暂无已归档内容'),
+            SizedBox(height: 8),
+          ],
+        ),
+        footer: Column(
+          children: [
+            const SizedBox(height: 20),
+            ExpansionTile(
+              tilePadding: EdgeInsets.zero,
+              title: Text('已归档 (${_archivedTodos.length})'),
+              children: _archivedTodos.isEmpty
+                  ? const [
+                      Padding(
+                        padding: EdgeInsets.only(bottom: 12),
+                        child: Align(
+                          alignment: Alignment.centerLeft,
+                          child: Text('暂无已归档内容'),
+                        ),
                       ),
-                    ),
-                  ]
-                : _archivedTodos
-                    .map((item) => _buildTodoCard(item, archived: true))
-                    .toList(),
-          ),
-        ],
+                    ]
+                  : _archivedTodos
+                      .map((item) => _buildTodoCard(item, archived: true))
+                      .toList(),
+            ),
+          ],
+        ),
+        children: _activeTodos.isEmpty
+            ? const [
+                Card(
+                  key: ValueKey('empty-todo-card'),
+                  child: Padding(
+                    padding: EdgeInsets.all(16),
+                    child: Text('暂无待办'),
+                  ),
+                ),
+              ]
+            : _activeTodos
+                .map((item) => _buildTodoCard(item, key: ValueKey(item.id)))
+                .toList(),
       ),
       floatingActionButton: FloatingActionButton(
         onPressed: _showCreateTodoDialog,
@@ -282,22 +368,28 @@ class _TodoScreenState extends State<TodoScreen> {
     );
   }
 
-  Widget _buildTodoCard(TodoItem item, {bool archived = false}) {
+  Widget _buildTodoCard(TodoItem item, {bool archived = false, Key? key}) {
     return Card(
+      key: key,
       margin: const EdgeInsets.symmetric(vertical: 6),
       child: ListTile(
-        title: Row(
+        leading: Container(
+          width: 12,
+          height: 12,
+          decoration: BoxDecoration(
+            color: item.color,
+            shape: BoxShape.circle,
+          ),
+        ),
+        title: GestureDetector(
+          onTap: item.isSystem || archived ? null : () => _showEditTodoDialog(item),
+          child: Text(item.title),
+        ),
+        subtitle: Text(item.summaryLabel),
+        trailing: Wrap(
+          spacing: 4,
+          crossAxisAlignment: WrapCrossAlignment.center,
           children: [
-            Container(
-              width: 12,
-              height: 12,
-              decoration: BoxDecoration(
-                color: item.color,
-                shape: BoxShape.circle,
-              ),
-            ),
-            const SizedBox(width: 8),
-            Expanded(child: Text(item.title)),
             if (!archived)
               IconButton(
                 tooltip: '发送提醒',
@@ -305,47 +397,46 @@ class _TodoScreenState extends State<TodoScreen> {
                 icon: const Icon(Icons.alarm),
               ),
             if (item.isSystem)
-              Padding(
-                padding: const EdgeInsets.only(left: 8),
-                child: ActionChip(
-                  onPressed: archived ? null : () => _showColorDialog(item),
-                  avatar: CircleAvatar(
-                    radius: 7,
-                    backgroundColor: item.color,
-                  ),
-                  label: const Text('默认'),
-                  visualDensity: VisualDensity.compact,
+              ActionChip(
+                onPressed: archived ? null : () => _showColorDialog(item),
+                avatar: CircleAvatar(
+                  radius: 7,
+                  backgroundColor: item.color,
                 ),
+                label: const Text('默认'),
+                visualDensity: VisualDensity.compact,
               )
             else if (!archived)
-              Padding(
-                padding: const EdgeInsets.only(left: 8),
-                child: ActionChip(
-                  onPressed: () => _showColorDialog(item),
-                  avatar: CircleAvatar(
-                    radius: 7,
-                    backgroundColor: item.color,
+              InkWell(
+                onTap: () => _showColorDialog(item),
+                borderRadius: BorderRadius.circular(999),
+                child: Padding(
+                  padding: const EdgeInsets.all(6),
+                  child: Container(
+                    width: 22,
+                    height: 22,
+                    decoration: BoxDecoration(
+                      color: item.color,
+                      shape: BoxShape.circle,
+                      border: Border.all(color: Colors.black12),
+                    ),
                   ),
-                  label: const Text('颜色'),
-                  visualDensity: VisualDensity.compact,
                 ),
               ),
-          ],
-        ),
-        subtitle: Text(item.summaryLabel),
-        trailing: archived
-            ? IconButton(
+            if (archived)
+              IconButton(
                 tooltip: '恢复',
                 onPressed: () => _restoreTodo(item),
                 icon: const Icon(Icons.unarchive_outlined),
               )
-            : item.isSystem
-                ? null
-                : IconButton(
-                    tooltip: '归档',
-                    onPressed: () => _archiveTodo(item),
-                    icon: const Icon(Icons.archive_outlined),
-                  ),
+            else if (!item.isSystem)
+              IconButton(
+                tooltip: '归档',
+                onPressed: () => _archiveTodo(item),
+                icon: const Icon(Icons.archive_outlined),
+              ),
+          ],
+        ),
       ),
     );
   }
