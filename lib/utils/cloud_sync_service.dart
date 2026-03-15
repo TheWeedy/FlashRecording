@@ -34,6 +34,7 @@ class CloudSyncService {
   DateTime? _lastCompletedAt;
 
   void scheduleSync({bool force = false}) {
+    unawaited(_settingsService.markLocalDirty());
     _pendingSync = true;
     _forceNextSync = _forceNextSync || force;
     _debounceTimer?.cancel();
@@ -109,6 +110,7 @@ class CloudSyncService {
       final pb = await _authService.createClient(settings.serverUrl);
       final localSnapshot = await _buildLocalSnapshot();
       final localUpdatedAt = _snapshotUpdatedAt(localSnapshot);
+      final localDirty = await _settingsService.isLocalDirty();
       final remoteRecord = await _loadRemoteSnapshot(pb, session.userId!);
       final remoteUpdatedAt = remoteRecord == null
           ? null
@@ -116,6 +118,7 @@ class CloudSyncService {
 
       if (remoteRecord == null ||
           force ||
+          localDirty ||
           remoteUpdatedAt == null ||
           localUpdatedAt.isAfter(remoteUpdatedAt)) {
         await _uploadSnapshot(
@@ -125,10 +128,12 @@ class CloudSyncService {
           snapshot: localSnapshot,
           updatedAt: localUpdatedAt,
         );
+        await _settingsService.clearLocalDirty();
       } else if (remoteUpdatedAt.isAfter(localUpdatedAt)) {
         final payloadJson = '${remoteRecord.data['payload_json'] ?? '{}'}';
         final payload = jsonDecode(payloadJson) as Map<String, dynamic>;
         await _applyRemoteSnapshot(payload);
+        await _settingsService.clearLocalDirty();
       }
 
       _lastCompletedAt = DateTime.now();

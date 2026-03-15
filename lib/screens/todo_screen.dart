@@ -24,6 +24,18 @@ class _TodoScreenState extends State<TodoScreen> {
     0xFF14B8A6,
     0xFFEAB308,
     0xFF64748B,
+    0xFFEC4899,
+    0xFF06B6D4,
+    0xFF84CC16,
+    0xFFF43F5E,
+    0xFF0EA5E9,
+    0xFFA855F7,
+    0xFFFB7185,
+    0xFF10B981,
+    0xFFF59E0B,
+    0xFF6366F1,
+    0xFF16A34A,
+    0xFFD946EF,
   ];
 
   final TodoPersistenceService _service = TodoPersistenceService();
