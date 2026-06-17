@@ -15,16 +15,12 @@ class DeletedRecordService {
   }) async {
     final db = executor ?? await LocalDatabase.instance.database;
     final at = deletedAt ?? DateTime.now();
-    await db.insert(
-      'deleted_records',
-      {
-        'record_key': '$entityType:$entityId',
-        'entity_type': entityType,
-        'entity_id': entityId,
-        'deleted_at': at.toIso8601String(),
-      },
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
+    await db.insert('deleted_records', {
+      'record_key': '$entityType:$entityId',
+      'entity_type': entityType,
+      'entity_id': entityId,
+      'deleted_at': at.toIso8601String(),
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
   Future<void> clearDeletion({

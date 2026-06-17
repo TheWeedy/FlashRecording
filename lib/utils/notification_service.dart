@@ -1,4 +1,7 @@
+import 'dart:io';
+
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
 class NotificationService {
@@ -9,26 +12,48 @@ class NotificationService {
   final FlutterLocalNotificationsPlugin _plugin =
       FlutterLocalNotificationsPlugin();
 
+  static const MethodChannel _platformChannel = MethodChannel(
+    'com.pyynb.edu.recordmytime/notification_settings',
+  );
+
+  static const String _todoChannelId = 'task_reminders_high_priority_v2';
+  static const String _todoChannelName = 'Task reminders';
+  static const String _todoChannelDescription =
+      'Manual reminders for tracked tasks';
+
   static const AndroidNotificationChannel _todoChannel =
       AndroidNotificationChannel(
-    'todo_reminder_channel',
-    '待办提醒',
-    description: '手动发送的待办提醒通知',
-    importance: Importance.max,
-    playSound: true,
-    enableVibration: true,
-  );
+        _todoChannelId,
+        _todoChannelName,
+        description: _todoChannelDescription,
+        importance: Importance.max,
+        playSound: true,
+        enableVibration: true,
+      );
 
   Future<void> initialize() async {
     try {
-      const initializationSettings = InitializationSettings(
-        android: AndroidInitializationSettings('ic_notification'),
+      final settings = InitializationSettings(
+        android: Platform.isAndroid
+            ? const AndroidInitializationSettings('ic_notification')
+            : null,
+        macOS: Platform.isMacOS
+            ? const DarwinInitializationSettings(
+                requestAlertPermission: false,
+                requestBadgePermission: false,
+                requestSoundPermission: false,
+              )
+            : null,
       );
-      await _plugin.initialize(settings: initializationSettings);
-      final androidPlugin = _plugin.resolvePlatformSpecificImplementation<
-          AndroidFlutterLocalNotificationsPlugin>();
-      await androidPlugin?.createNotificationChannel(_todoChannel);
-      await androidPlugin?.requestNotificationsPermission();
+      await _plugin.initialize(settings: settings);
+
+      if (Platform.isAndroid) {
+        final androidPlugin = _plugin
+            .resolvePlatformSpecificImplementation<
+              AndroidFlutterLocalNotificationsPlugin
+            >();
+        await androidPlugin?.createNotificationChannel(_todoChannel);
+      }
     } catch (error, stackTrace) {
       debugPrint('Notification initialization failed: $error');
       debugPrintStack(stackTrace: stackTrace);
@@ -37,21 +62,59 @@ class NotificationService {
 
   Future<bool> ensurePermissionGranted() async {
     try {
-      final androidPlugin = _plugin.resolvePlatformSpecificImplementation<
-          AndroidFlutterLocalNotificationsPlugin>();
-      if (androidPlugin == null) {
-        return true;
+      if (Platform.isAndroid) {
+        final androidPlugin = _plugin
+            .resolvePlatformSpecificImplementation<
+              AndroidFlutterLocalNotificationsPlugin
+            >();
+        if (androidPlugin == null) {
+          return true;
+        }
+        final granted = await androidPlugin.areNotificationsEnabled();
+        if (granted ?? false) {
+          return true;
+        }
+        final requested =
+            await androidPlugin.requestNotificationsPermission();
+        return requested ?? false;
       }
-      final granted = await androidPlugin.areNotificationsEnabled();
-      if (granted ?? false) {
-        return true;
+
+      if (Platform.isMacOS) {
+        final macPlugin = _plugin
+            .resolvePlatformSpecificImplementation<
+              MacOSFlutterLocalNotificationsPlugin
+            >();
+        if (macPlugin == null) {
+          return true;
+        }
+        final granted = await macPlugin.requestPermissions(
+          alert: true,
+          badge: true,
+          sound: true,
+        );
+        return granted ?? false;
       }
-      final requested = await androidPlugin.requestNotificationsPermission();
-      return requested ?? false;
+
+      return true;
     } catch (error, stackTrace) {
       debugPrint('Notification permission request failed: $error');
       debugPrintStack(stackTrace: stackTrace);
       return false;
+    }
+  }
+
+  Future<void> openNotificationSettings() async {
+    try {
+      if (Platform.isMacOS) {
+        await Process.run('open', [
+          'x-apple.systempreferences:com.apple.preference.notifications?Notification',
+        ]);
+        return;
+      }
+      await _platformChannel.invokeMethod<void>('openNotificationSettings');
+    } catch (error, stackTrace) {
+      debugPrint('Opening notification settings failed: $error');
+      debugPrintStack(stackTrace: stackTrace);
     }
   }
 
@@ -65,19 +128,32 @@ class NotificationService {
       return false;
     }
 
-    const details = NotificationDetails(
-      android: AndroidNotificationDetails(
-        'todo_reminder_channel',
-        '待办提醒',
-        channelDescription: '手动发送的待办提醒通知',
-        importance: Importance.max,
-        priority: Priority.high,
-        playSound: true,
-        enableVibration: true,
-      ),
+    final details = NotificationDetails(
+      android: Platform.isAndroid
+          ? const AndroidNotificationDetails(
+              _todoChannelId,
+              _todoChannelName,
+              channelDescription: _todoChannelDescription,
+              icon: 'ic_notification',
+              importance: Importance.max,
+              priority: Priority.high,
+              category: AndroidNotificationCategory.reminder,
+              visibility: NotificationVisibility.public,
+              playSound: true,
+              enableVibration: true,
+              ticker: 'Task reminder',
+            )
+          : null,
+      macOS: Platform.isMacOS
+          ? const DarwinNotificationDetails(
+              presentAlert: true,
+              presentBadge: true,
+              presentSound: true,
+            )
+          : null,
     );
     await _plugin.show(
-      id: id,
+      id: id & 0x7fffffff,
       title: title,
       body: body,
       notificationDetails: details,

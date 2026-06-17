@@ -26,9 +26,5 @@ class SyncSettings {
     );
   }
 
-  static const empty = SyncSettings(
-    serverUrl: '',
-    username: '',
-    password: '',
-  );
+  static const empty = SyncSettings(serverUrl: '', username: '', password: '');
 }

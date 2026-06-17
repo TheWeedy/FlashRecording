@@ -29,10 +29,10 @@ class TodoItem {
     final hours = totalDurationMinutes ~/ 60;
     final minutes = totalDurationMinutes % 60;
     final durationLabel = hours == 0
-        ? '$minutes 分钟'
+        ? '$minutes min'
         : minutes == 0
-            ? '$hours 小时'
-            : '$hours 小时 $minutes 分钟';
-    return '$totalCount 次 · $durationLabel';
+        ? '$hours hr'
+        : '$hours hr $minutes min';
+    return '$totalCount times · $durationLabel';
   }
 }

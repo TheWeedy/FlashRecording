@@ -3,8 +3,10 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../models/note_item.dart';
+import '../theme/app_theme.dart';
 import '../utils/cloud_sync_service.dart';
 import '../utils/note_persistence.dart';
+import '../widgets/app_components.dart';
 import 'note_editor_screen.dart';
 
 class NoteListScreen extends StatefulWidget {
@@ -53,9 +55,7 @@ class _NoteListScreenState extends State<NoteListScreen> {
       return;
     }
     final result = await Navigator.of(context).push<bool>(
-      MaterialPageRoute(
-        builder: (_) => NoteEditorScreen(initialNote: note),
-      ),
+      MaterialPageRoute(builder: (_) => NoteEditorScreen(initialNote: note)),
     );
     if (result == true) {
       await _loadNotes();
@@ -76,19 +76,22 @@ class _NoteListScreenState extends State<NoteListScreen> {
     if (_selectedIds.isEmpty) {
       return;
     }
-    final shouldDelete = await showDialog<bool>(
+    final shouldDelete =
+        await showDialog<bool>(
           context: context,
           builder: (context) => AlertDialog(
-            title: const Text('确认删除'),
-            content: Text('确定删除已选择的 ${_selectedIds.length} 条笔记吗？'),
+            title: const Text('Delete selected notes?'),
+            content: Text(
+              'This will permanently remove ${_selectedIds.length} selected notes.',
+            ),
             actions: [
               TextButton(
                 onPressed: () => Navigator.of(context).pop(false),
-                child: const Text('取消'),
+                child: const Text('Cancel'),
               ),
               FilledButton(
                 onPressed: () => Navigator.of(context).pop(true),
-                child: const Text('删除'),
+                child: const Text('Delete'),
               ),
             ],
           ),
@@ -134,66 +137,116 @@ class _NoteListScreenState extends State<NoteListScreen> {
         '${value.hour.toString().padLeft(2, '0')}:${value.minute.toString().padLeft(2, '0')}';
   }
 
-  Widget _buildNoteCard(NoteItem note, {bool archived = false}) {
+  Widget _buildNoteCard(NoteItem note, {bool archived = false, int index = 0}) {
     final isSelected = _selectedIds.contains(note.id);
-    return Card(
-      margin: const EdgeInsets.only(bottom: 10),
-      color: isSelected ? Colors.blue.shade50 : Colors.white,
-      child: ListTile(
-        leading: _isSelectionMode && !archived
-            ? Checkbox(
-                value: isSelected,
-                onChanged: (_) => _toggleSelection(note),
-              )
-            : null,
-        title: Text(
-          note.title,
-          style: const TextStyle(fontWeight: FontWeight.w800),
-        ),
-        subtitle: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const SizedBox(height: 6),
-            Text(
-              note.plainTextPreview.isEmpty ? '空白笔记' : note.plainTextPreview,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
+    return FadeSlideIn(
+      delay: Duration(milliseconds: 30 * (index > 8 ? 8 : index)),
+      child: Padding(
+        padding: const EdgeInsets.only(bottom: 10),
+        child: AnimatedContainer(
+          duration: AppTheme.fast,
+          decoration: BoxDecoration(
+            color: isSelected ? AppTheme.primarySoft : AppTheme.surface,
+            borderRadius: BorderRadius.circular(AppTheme.radiusCard),
+            border: Border.all(
+              color: isSelected ? AppTheme.primary : AppTheme.border,
             ),
-            const SizedBox(height: 6),
-            Text(
-              '更新于 ${_formatDateTime(note.updatedAt)}',
-              style: const TextStyle(fontSize: 12, color: Colors.grey),
-            ),
-          ],
-        ),
-        onTap: archived
-            ? () => _openEditor(note: note)
-            : _isSelectionMode
+            boxShadow: isSelected ? [] : AppTheme.cardShadow,
+          ),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(AppTheme.radiusCard),
+            onTap: archived
+                ? () => _openEditor(note: note)
+                : _isSelectionMode
                 ? () => _toggleSelection(note)
                 : () => _openEditor(note: note),
-        onLongPress: archived
-            ? null
-            : () {
-                if (!_isSelectionMode) {
-                  setState(() {
-                    _isSelectionMode = true;
-                    _selectedIds.add(note.id);
-                  });
-                }
-              },
-        trailing: archived
-            ? IconButton(
-                tooltip: '恢复',
-                onPressed: () => _restoreNote(note),
-                icon: const Icon(Icons.unarchive_outlined),
-              )
-            : _isSelectionMode
+            onLongPress: archived
                 ? null
-                : IconButton(
-                    tooltip: '归档',
-                    onPressed: () => _archiveNote(note),
-                    icon: const Icon(Icons.archive_outlined),
+                : () {
+                    if (!_isSelectionMode) {
+                      setState(() {
+                        _isSelectionMode = true;
+                        _selectedIds.add(note.id);
+                      });
+                    }
+                  },
+            child: Padding(
+              padding: const EdgeInsets.all(14),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (_isSelectionMode && !archived) ...[
+                    Checkbox(
+                      value: isSelected,
+                      onChanged: (_) => _toggleSelection(note),
+                    ),
+                    const SizedBox(width: 6),
+                  ] else ...[
+                    Container(
+                      width: 42,
+                      height: 42,
+                      decoration: BoxDecoration(
+                        color: AppTheme.copperSoft,
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                      child: const Icon(
+                        Icons.notes_rounded,
+                        size: 20,
+                        color: AppTheme.copper,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                  ],
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          note.title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.titleMedium
+                              ?.copyWith(fontWeight: FontWeight.w700),
+                        ),
+                        const SizedBox(height: 7),
+                        Text(
+                          note.plainTextPreview.isEmpty
+                              ? 'Blank note'
+                              : note.plainTextPreview,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.bodyMedium
+                              ?.copyWith(color: AppTheme.muted, height: 1.35),
+                        ),
+                        const SizedBox(height: 10),
+                        AppChip(
+                          icon: Icons.update,
+                          label: 'Updated ${_formatDateTime(note.updatedAt)}',
+                          color: AppTheme.steel,
+                        ),
+                      ],
+                    ),
                   ),
+                  const SizedBox(width: 8),
+                  if (archived)
+                    QuietIconButton(
+                      tooltip: 'Restore',
+                      onPressed: () => _restoreNote(note),
+                      icon: Icons.unarchive_outlined,
+                      color: AppTheme.primary,
+                    )
+                  else if (!_isSelectionMode)
+                    QuietIconButton(
+                      tooltip: 'Archive',
+                      onPressed: () => _archiveNote(note),
+                      icon: Icons.archive_outlined,
+                      color: AppTheme.muted,
+                    ),
+                ],
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -201,9 +254,7 @@ class _NoteListScreenState extends State<NoteListScreen> {
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
-      return const Scaffold(
-        body: Center(child: CircularProgressIndicator()),
-      );
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
     return PopScope(
@@ -214,57 +265,85 @@ class _NoteListScreenState extends State<NoteListScreen> {
         }
       },
       child: Scaffold(
-        floatingActionButtonAnimator: FloatingActionButtonAnimator.scaling,
-        appBar: AppBar(
-          title: _isSelectionMode
-              ? Text('已选择 ${_selectedIds.length} 项')
-              : const Text('笔记'),
-          leading: _isSelectionMode
-              ? IconButton(
-                  onPressed: _exitSelectionMode,
-                  icon: const Icon(Icons.close),
-                )
-              : null,
-        ),
-        body: ListView(
-          padding: const EdgeInsets.all(16),
-          children: [
-            if (_notes.isEmpty)
-              const Card(
-                child: Padding(
-                  padding: EdgeInsets.all(16),
-                  child: Text('还没有笔记，点击右下角开始创建。'),
-                ),
+        body: SafeArea(
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(
+              AppTheme.pagePadding,
+              18,
+              AppTheme.pagePadding,
+              104,
+            ),
+            children: [
+              PageIntro(
+                eyebrow: 'Notebook',
+                title: _isSelectionMode
+                    ? '${_selectedIds.length} selected'
+                    : 'Notes',
+                description: _isSelectionMode
+                    ? 'Review selected notes before deleting them.'
+                    : 'Keep the thinking beside the time records it explains.',
+                trailing: _isSelectionMode
+                    ? QuietIconButton(
+                        onPressed: _exitSelectionMode,
+                        icon: Icons.close,
+                        tooltip: 'Exit selection',
+                        color: AppTheme.danger,
+                      )
+                    : null,
               ),
-            ..._notes.map((note) => _buildNoteCard(note)),
-            const SizedBox(height: 12),
-            ExpansionTile(
-              tilePadding: EdgeInsets.zero,
-              title: Text('已归档 (${_archivedNotes.length})'),
-              children: _archivedNotes.isEmpty
-                  ? const [
-                      Padding(
-                        padding: EdgeInsets.only(bottom: 12),
-                        child: Align(
-                          alignment: Alignment.centerLeft,
-                          child: Text('暂无已归档笔记'),
+              const SizedBox(height: 18),
+              if (_notes.isEmpty)
+                const EmptyState(
+                  icon: Icons.sticky_note_2_outlined,
+                  title: 'No notes yet',
+                  message: 'Create a note when an entry needs more context.',
+                )
+              else
+                ...List.generate(
+                  _notes.length,
+                  (index) => _buildNoteCard(_notes[index], index: index),
+                ),
+              const SizedBox(height: 8),
+              ExpansionTile(
+                tilePadding: EdgeInsets.zero,
+                collapsedIconColor: AppTheme.muted,
+                iconColor: AppTheme.primary,
+                title: Text(
+                  'Archived (${_archivedNotes.length})',
+                  style: const TextStyle(fontWeight: FontWeight.w700),
+                ),
+                children: _archivedNotes.isEmpty
+                    ? const [
+                        Padding(
+                          padding: EdgeInsets.only(bottom: 12),
+                          child: Align(
+                            alignment: Alignment.centerLeft,
+                            child: Text('No archived notes'),
+                          ),
+                        ),
+                      ]
+                    : List.generate(
+                        _archivedNotes.length,
+                        (index) => _buildNoteCard(
+                          _archivedNotes[index],
+                          archived: true,
+                          index: index,
                         ),
                       ),
-                    ]
-                  : _archivedNotes
-                      .map((note) => _buildNoteCard(note, archived: true))
-                      .toList(),
-            ),
-          ],
+              ),
+            ],
+          ),
         ),
+        floatingActionButtonAnimator: FloatingActionButtonAnimator.scaling,
         floatingActionButton: _isSelectionMode
             ? FloatingActionButton(
                 onPressed: _deleteSelectedNotes,
-                backgroundColor: Colors.red,
+                backgroundColor: AppTheme.danger,
                 child: const Icon(Icons.delete),
               )
             : FloatingActionButton(
                 onPressed: _openEditor,
+                tooltip: 'Create note',
                 child: const Icon(Icons.add),
               ),
       ),

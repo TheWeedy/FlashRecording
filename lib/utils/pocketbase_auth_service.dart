@@ -40,11 +40,12 @@ class PocketBaseAuthException implements Exception {
 
 class PocketBaseCredentialException extends PocketBaseAuthException {
   const PocketBaseCredentialException()
-      : super('用户名不存在或密码不正确');
+    : super('The username does not exist or the password is incorrect.');
 }
 
 class PocketBaseUserNotFoundException extends PocketBaseAuthException {
-  const PocketBaseUserNotFoundException() : super('该用户尚未注册');
+  const PocketBaseUserNotFoundException()
+    : super('This user is not registered yet.');
 }
 
 class PocketBaseAuthService {
@@ -57,10 +58,7 @@ class PocketBaseAuthService {
       save: (String data) async => prefs.setString(_authStoreKey, data),
       initial: prefs.getString(_authStoreKey),
     );
-    return PocketBase(
-      normalizedUrl,
-      authStore: authStore,
-    );
+    return PocketBase(normalizedUrl, authStore: authStore);
   }
 
   Future<PocketBaseSession> loadSession(SyncSettings settings) async {
@@ -88,17 +86,18 @@ class PocketBaseAuthService {
     final password = settings.password;
 
     if (normalizedUrl.isEmpty || username.isEmpty || password.isEmpty) {
-      throw const PocketBaseAuthException('请先完整填写服务器地址、用户名和密码');
+      throw const PocketBaseAuthException(
+        'Enter the server URL, username, and password first.',
+      );
     }
 
     final pb = await createClient(normalizedUrl);
     final identity = identityFromUsername(username);
 
     try {
-      final authData = await pb.collection('users').authWithPassword(
-            identity,
-            password,
-          );
+      final authData = await pb
+          .collection('users')
+          .authWithPassword(identity, password);
       return PocketBaseAuthResult(
         serverUrl: normalizedUrl,
         username: username,
@@ -117,15 +116,17 @@ class PocketBaseAuthService {
     final identity = identityFromUsername(username);
 
     try {
-      final created = await pb.collection('users').create(
-        body: {
-          'username': username,
-          'email': identity,
-          'emailVisibility': false,
-          'password': password,
-          'passwordConfirm': password,
-        },
-      );
+      final created = await pb
+          .collection('users')
+          .create(
+            body: {
+              'username': username,
+              'email': identity,
+              'emailVisibility': false,
+              'password': password,
+              'passwordConfirm': password,
+            },
+          );
       await pb.collection('users').authWithPassword(identity, password);
       return PocketBaseAuthResult(
         serverUrl: normalizedUrl,
@@ -149,26 +150,32 @@ class PocketBaseAuthService {
     }
     final withScheme =
         trimmed.startsWith('http://') || trimmed.startsWith('https://')
-            ? trimmed
-            : 'http://$trimmed';
+        ? trimmed
+        : 'http://$trimmed';
     return withScheme.endsWith('/')
         ? withScheme.substring(0, withScheme.length - 1)
         : withScheme;
   }
 
   String identityFromUsername(String username) {
-    final normalized =
-        username.trim().toLowerCase().replaceAll(RegExp(r'\s+'), '_');
+    final normalized = username.trim().toLowerCase().replaceAll(
+      RegExp(r'\s+'),
+      '_',
+    );
     return '$normalized@recordmytime.local';
   }
 
   PocketBaseAuthException _mapLoginException(ClientException error) {
     final message = _extractMessage(error).toLowerCase();
     if (error.statusCode == 0) {
-      return const PocketBaseAuthException('无法连接到服务器，请检查地址和网络');
+      return const PocketBaseAuthException(
+        'Could not reach the server. Check the URL and network.',
+      );
     }
     if (error.statusCode == 404 && message.contains('users')) {
-      return const PocketBaseAuthException('服务器未正确配置 users 认证集合');
+      return const PocketBaseAuthException(
+        'The users auth collection is not configured on the server.',
+      );
     }
     if (error.statusCode == 400 || error.statusCode == 401) {
       return const PocketBaseCredentialException();
@@ -181,33 +188,43 @@ class PocketBaseAuthService {
     if (extracted.isNotEmpty) {
       return PocketBaseAuthException(extracted);
     }
-    return PocketBaseAuthException('登录失败（${error.statusCode}）');
+    return PocketBaseAuthException('Login failed (${error.statusCode})');
   }
 
   PocketBaseAuthException _mapRegisterException(ClientException error) {
     final extracted = _extractMessage(error);
     final message = extracted.toLowerCase();
     if (error.statusCode == 0) {
-      return const PocketBaseAuthException('无法连接到服务器，请检查地址和网络');
+      return const PocketBaseAuthException(
+        'Could not reach the server. Check the URL and network.',
+      );
     }
     if (error.statusCode == 404 && message.contains('users')) {
-      return const PocketBaseAuthException('服务器未正确配置 users 认证集合');
+      return const PocketBaseAuthException(
+        'The users auth collection is not configured on the server.',
+      );
     }
     if (message.contains('already') ||
         message.contains('unique') ||
         message.contains('must be unique')) {
-      return const PocketBaseAuthException('该用户名已存在，请直接登录或检查密码');
+      return const PocketBaseAuthException(
+        'This username already exists. Sign in or check the password.',
+      );
     }
     if (message.contains('password')) {
-      return const PocketBaseAuthException('密码不符合服务器要求，请换一个更复杂的密码');
+      return const PocketBaseAuthException(
+        'The password does not meet server requirements.',
+      );
     }
     if (message.contains('email')) {
-      return const PocketBaseAuthException('注册邮箱字段校验失败，请检查服务器 users 配置');
+      return const PocketBaseAuthException(
+        'The generated email failed validation. Check the users collection settings.',
+      );
     }
     if (extracted.isNotEmpty) {
       return PocketBaseAuthException(extracted);
     }
-    return PocketBaseAuthException('注册失败（${error.statusCode}）');
+    return PocketBaseAuthException('Registration failed (${error.statusCode})');
   }
 
   String _extractMessage(ClientException error) {
@@ -225,12 +242,13 @@ class PocketBaseAuthService {
       for (final entry in data.entries) {
         final value = entry.value;
         if (value is Map && value['message'] is String) {
-          final fieldMessage = '${entry.key}: ${(value['message'] as String).trim()}';
+          final fieldMessage =
+              '${entry.key}: ${(value['message'] as String).trim()}';
           messages.add(fieldMessage);
         }
       }
       if (messages.isNotEmpty) {
-        return messages.join('；');
+        return messages.join('; ');
       }
     }
     return '';

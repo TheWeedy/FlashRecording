@@ -7,9 +7,9 @@ import 'local_database.dart';
 
 class TodoPersistenceService {
   static const seedTodos = {
-    'system-work': _SeedTodo('工作', 0xFF3B82F6, 0),
-    'system-study': _SeedTodo('学习', 0xFF22C55E, 1),
-    'system-play': _SeedTodo('娱乐', 0xFFF97316, 2),
+    'system-work': _SeedTodo('Work', 0xFF356B8C, 0),
+    'system-study': _SeedTodo('Study', 0xFF3E8F6B, 1),
+    'system-play': _SeedTodo('Leisure', 0xFFB66A4B, 2),
   };
 
   Future<List<TodoItem>> loadActiveTodos() async {
@@ -32,7 +32,7 @@ class TodoPersistenceService {
 
   Future<void> createTodo({
     required String title,
-    int colorValue = 0xFF14B8A6,
+    int colorValue = 0xFF2F5D50,
   }) async {
     final db = await LocalDatabase.instance.database;
     final rows = await db.rawQuery(
@@ -62,10 +62,7 @@ class TodoPersistenceService {
     final db = await LocalDatabase.instance.database;
     await db.update(
       'todo_items',
-      {
-        'title': title,
-        'updated_at': DateTime.now().toIso8601String(),
-      },
+      {'title': title, 'updated_at': DateTime.now().toIso8601String()},
       where: 'id = ? AND is_system = 0',
       whereArgs: [id],
     );
@@ -96,10 +93,7 @@ class TodoPersistenceService {
     for (var index = 0; index < orderedIds.length; index++) {
       batch.update(
         'todo_items',
-        {
-          'sort_order': index,
-          'updated_at': now,
-        },
+        {'sort_order': index, 'updated_at': now},
         where: 'id = ?',
         whereArgs: [orderedIds[index]],
       );
@@ -111,10 +105,7 @@ class TodoPersistenceService {
   Future<Map<String, Color>> loadTodoColorMap() async {
     await _ensureSeedTodos();
     final db = await LocalDatabase.instance.database;
-    final rows = await db.query(
-      'todo_items',
-      columns: ['id', 'color_value'],
-    );
+    final rows = await db.query('todo_items', columns: ['id', 'color_value']);
     return {
       for (final row in rows)
         row['id'] as String: Color(_asInt(row['color_value'])),
@@ -139,10 +130,7 @@ class TodoPersistenceService {
     final db = await LocalDatabase.instance.database;
     await db.update(
       'todo_items',
-      {
-        'archived_at': null,
-        'updated_at': DateTime.now().toIso8601String(),
-      },
+      {'archived_at': null, 'updated_at': DateTime.now().toIso8601String()},
       where: 'id = ?',
       whereArgs: [id],
     );
@@ -186,8 +174,7 @@ class TodoPersistenceService {
 
   Future<List<TodoItem>> _loadTodos({required bool archived}) async {
     final db = await LocalDatabase.instance.database;
-    final rows = await db.rawQuery(
-      '''
+    final rows = await db.rawQuery('''
       SELECT
         t.id,
         t.title,
@@ -210,15 +197,14 @@ class TodoPersistenceService {
       WHERE ${archived ? 't.archived_at IS NOT NULL' : 't.archived_at IS NULL'}
       GROUP BY t.id, t.title, t.is_system, t.created_at, t.archived_at
       ORDER BY t.sort_order ASC, t.created_at ASC
-      ''',
-    );
+      ''');
 
     return rows.map(_mapRow).toList();
   }
 
   TodoItem _mapRow(Map<String, Object?> row) {
     final colorValue = _asInt(row['color_value']) == 0
-        ? 0xFF14B8A6
+        ? 0xFF2F5D50
         : _asInt(row['color_value']);
     return TodoItem(
       id: row['id'] as String,
@@ -265,10 +251,7 @@ class TodoPersistenceService {
         hasChange = true;
         batch.update(
           'todo_items',
-          {
-            'sort_order': index,
-            'updated_at': now,
-          },
+          {'sort_order': index, 'updated_at': now},
           where: 'id = ?',
           whereArgs: [id],
         );
@@ -284,28 +267,21 @@ class TodoPersistenceService {
     final batch = db.batch();
 
     for (final entry in seedTodos.entries) {
-      batch.insert(
-        'todo_items',
-        {
-          'id': entry.key,
-          'title': entry.value.title,
-          'metric_type': 'duration',
-          'progress_value': 0,
-          'is_system': 1,
-          'color_value': entry.value.colorValue,
-          'sort_order': entry.value.sortOrder,
-          'created_at': DateTime.fromMillisecondsSinceEpoch(0).toIso8601String(),
-          'updated_at': DateTime.fromMillisecondsSinceEpoch(0).toIso8601String(),
-          'archived_at': null,
-        },
-        conflictAlgorithm: ConflictAlgorithm.ignore,
-      );
+      batch.insert('todo_items', {
+        'id': entry.key,
+        'title': entry.value.title,
+        'metric_type': 'duration',
+        'progress_value': 0,
+        'is_system': 1,
+        'color_value': entry.value.colorValue,
+        'sort_order': entry.value.sortOrder,
+        'created_at': DateTime.fromMillisecondsSinceEpoch(0).toIso8601String(),
+        'updated_at': DateTime.fromMillisecondsSinceEpoch(0).toIso8601String(),
+        'archived_at': null,
+      }, conflictAlgorithm: ConflictAlgorithm.ignore);
       batch.update(
         'todo_items',
-        {
-          'title': entry.value.title,
-          'color_value': entry.value.colorValue,
-        },
+        {'title': entry.value.title, 'color_value': entry.value.colorValue},
         where: 'id = ?',
         whereArgs: [entry.key],
       );
@@ -317,7 +293,7 @@ class TodoPersistenceService {
       SET color_value = ?
       WHERE is_system = 0 AND color_value = 0
       ''',
-      [0xFF14B8A6],
+      [0xFF2F5D50],
     );
 
     await batch.commit(noResult: true);

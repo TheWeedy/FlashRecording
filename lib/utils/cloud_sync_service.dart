@@ -38,18 +38,12 @@ class CloudSyncService {
     _pendingSync = true;
     _forceNextSync = _forceNextSync || force;
     _debounceTimer?.cancel();
-    _debounceTimer = Timer(
-      const Duration(seconds: 2),
-      () {
-        unawaited(_drainQueue());
-      },
-    );
+    _debounceTimer = Timer(const Duration(seconds: 2), () {
+      unawaited(_drainQueue());
+    });
   }
 
-  Future<void> syncNow({
-    bool force = false,
-    bool throwOnError = false,
-  }) async {
+  Future<void> syncNow({bool force = false, bool throwOnError = false}) async {
     _pendingSync = true;
     _forceNextSync = _forceNextSync || force;
     _debounceTimer?.cancel();
@@ -148,14 +142,16 @@ class CloudSyncService {
       }
     } catch (error) {
       if (throwOnError) {
-        throw CloudSyncException('同步失败：$error');
+        throw CloudSyncException('Sync failed: $error');
       }
     }
   }
 
   Future<RecordModel?> _loadRemoteSnapshot(PocketBase pb, String userId) async {
     try {
-      return await pb.collection('sync_records').getFirstListItem(
+      return await pb
+          .collection('sync_records')
+          .getFirstListItem(
             'owner = "$userId" && entity_type = "$_snapshotEntityType" && local_id = "$_snapshotLocalId"',
           );
     } on ClientException catch (error) {
@@ -242,8 +238,8 @@ class CloudSyncService {
   DateTime _snapshotUpdatedAt(Map<String, dynamic> snapshot) {
     DateTime latest = DateTime.fromMillisecondsSinceEpoch(0);
     for (final section in ['time_events', 'todo_items', 'notes']) {
-      final rows =
-          (snapshot[section] as List<dynamic>? ?? const <dynamic>[]).cast<Map<String, dynamic>>();
+      final rows = (snapshot[section] as List<dynamic>? ?? const <dynamic>[])
+          .cast<Map<String, dynamic>>();
       for (final row in rows) {
         final candidate = DateTime.tryParse(
           '${row['updated_at'] ?? row['created_at'] ?? row['added_at'] ?? ''}',
@@ -257,26 +253,30 @@ class CloudSyncService {
   }
 
   Map<String, dynamic> _normalizeRow(Map<String, Object?> row) {
-    return {
-      for (final entry in row.entries) entry.key: entry.value,
-    };
+    return {for (final entry in row.entries) entry.key: entry.value};
   }
 
   CloudSyncException _mapClientException(ClientException error) {
     final message = _extractMessage(error).toLowerCase();
     if (error.statusCode == 0) {
-      return const CloudSyncException('无法连接到同步服务器，请检查网络和地址');
+      return const CloudSyncException(
+        'Could not reach the sync server. Check the network and URL.',
+      );
     }
     if (error.statusCode == 404 && message.contains('sync_records')) {
-      return const CloudSyncException('服务器缺少 sync_records 集合，请先在 PocketBase 中创建');
+      return const CloudSyncException(
+        'The sync_records collection is missing on the server.',
+      );
     }
     if (error.statusCode == 400 && message.contains('sync_records')) {
-      return const CloudSyncException('服务器中的 sync_records 字段不完整，请检查 owner、entity_type、local_id、payload_json、updated_at');
+      return const CloudSyncException(
+        'The sync_records schema is incomplete. Check owner, entity_type, local_id, payload_json, and updated_at.',
+      );
     }
     if (message.isNotEmpty) {
       return CloudSyncException(message);
     }
-    return CloudSyncException('同步失败（${error.statusCode}）');
+    return CloudSyncException('Sync failed (${error.statusCode})');
   }
 
   String _extractMessage(ClientException error) {

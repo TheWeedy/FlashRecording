@@ -13,6 +13,7 @@ import 'screens/note_list_screen.dart';
 import 'screens/statistics_screen.dart';
 import 'screens/todo_screen.dart';
 import 'screens/welcome_screen.dart';
+import 'theme/app_theme.dart';
 import 'utils/cloud_sync_service.dart';
 import 'utils/notification_service.dart';
 import 'utils/persistence.dart';
@@ -38,18 +39,7 @@ class MyApp extends StatelessWidget {
       title: '$appDisplayName $appVersion',
       localizationsDelegates: FlutterQuillLocalizations.localizationsDelegates,
       supportedLocales: FlutterQuillLocalizations.supportedLocales,
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
-        scaffoldBackgroundColor: const Color(0xFFF6F7FB),
-        bottomNavigationBarTheme: const BottomNavigationBarThemeData(
-          backgroundColor: Colors.white,
-          selectedItemColor: Color(0xFF2448C6),
-          unselectedItemColor: Color(0xFF6B7280),
-          type: BottomNavigationBarType.fixed,
-          showUnselectedLabels: true,
-          elevation: 12,
-        ),
-      ),
+      theme: AppTheme.light(),
       home: const AppBootstrap(),
     );
   }
@@ -96,14 +86,12 @@ class _AppBootstrapState extends State<AppBootstrap> {
   Widget build(BuildContext context) {
     final showWelcome = _showWelcome;
     if (showWelcome == null) {
-      return const Scaffold(
-        body: Center(child: CircularProgressIndicator()),
-      );
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
     if (showWelcome) {
       return WelcomeScreen(onContinue: _dismissWelcome);
     }
-    return const MyHomePage(title: '我的时间事件');
+    return const MyHomePage(title: 'Record My Time');
   }
 }
 
@@ -189,19 +177,22 @@ class _MyHomePageState extends State<MyHomePage> {
       return;
     }
 
-    final shouldDelete = await showDialog<bool>(
+    final shouldDelete =
+        await showDialog<bool>(
           context: context,
           builder: (context) => AlertDialog(
-            title: const Text('确认删除'),
-            content: Text('确定删除已选择的 ${_selectedIds.length} 条记录吗？'),
+            title: const Text('Delete selected entries?'),
+            content: Text(
+              'This will remove ${_selectedIds.length} selected entries from this device and the next sync snapshot.',
+            ),
             actions: [
               TextButton(
                 onPressed: () => Navigator.of(context).pop(false),
-                child: const Text('取消'),
+                child: const Text('Cancel'),
               ),
               FilledButton(
                 onPressed: () => Navigator.of(context).pop(true),
-                child: const Text('删除'),
+                child: const Text('Delete'),
               ),
             ],
           ),
@@ -218,6 +209,20 @@ class _MyHomePageState extends State<MyHomePage> {
       _isSelectionMode = false;
     });
     await _saveEvents();
+  }
+
+  void _onNavigate(int index) async {
+    if (_isSelectionMode && index != 0) {
+      _toggleSelectionMode();
+    }
+    setState(() {
+      _currentIndex = index;
+    });
+    await _pageController.animateToPage(
+      index,
+      duration: AppTheme.medium,
+      curve: Curves.easeOutCubic,
+    );
   }
 
   @override
@@ -240,6 +245,29 @@ class _MyHomePageState extends State<MyHomePage> {
       const TodoScreen(),
     ];
 
+    const navItems = [
+      NavigationRailDestination(
+        icon: Icon(Icons.view_agenda_outlined),
+        selectedIcon: Icon(Icons.view_agenda),
+        label: Text('Entries'),
+      ),
+      NavigationRailDestination(
+        icon: Icon(Icons.query_stats_outlined),
+        selectedIcon: Icon(Icons.query_stats),
+        label: Text('Insights'),
+      ),
+      NavigationRailDestination(
+        icon: Icon(Icons.sticky_note_2_outlined),
+        selectedIcon: Icon(Icons.sticky_note_2),
+        label: Text('Notes'),
+      ),
+      NavigationRailDestination(
+        icon: Icon(Icons.checklist_outlined),
+        selectedIcon: Icon(Icons.checklist),
+        label: Text('Tasks'),
+      ),
+    ];
+
     return PopScope(
       canPop: !(_currentIndex == 0 && _isSelectionMode),
       onPopInvokedWithResult: (didPop, result) {
@@ -247,49 +275,125 @@ class _MyHomePageState extends State<MyHomePage> {
           _toggleSelectionMode();
         }
       },
-      child: Scaffold(
-        body: PageView(
-          controller: _pageController,
-          onPageChanged: (index) {
-            if (_isSelectionMode && index != 0) {
-              _toggleSelectionMode();
-            }
-            setState(() {
-              _currentIndex = index;
-            });
-          },
-          children: screens,
-        ),
-        bottomNavigationBar: BottomNavigationBar(
-          backgroundColor: Colors.white,
-          currentIndex: _currentIndex,
-          onTap: (index) async {
-            if (_isSelectionMode && index != 0) {
-              _toggleSelectionMode();
-            }
-            setState(() {
-              _currentIndex = index;
-            });
-            await _pageController.animateToPage(
-              index,
-              duration: const Duration(milliseconds: 260),
-              curve: Curves.easeOutCubic,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final isWide = constraints.maxWidth >= 700;
+
+          final pageView = PageView(
+            controller: _pageController,
+            onPageChanged: (index) {
+              if (_isSelectionMode && index != 0) {
+                _toggleSelectionMode();
+              }
+              setState(() {
+                _currentIndex = index;
+              });
+            },
+            children: screens,
+          );
+
+          if (isWide) {
+            return Scaffold(
+              body: Row(
+                children: [
+                  Container(
+                    decoration: BoxDecoration(
+                      color: AppTheme.surface,
+                      border: const Border(
+                        right: BorderSide(color: AppTheme.border),
+                      ),
+                    ),
+                    child: NavigationRail(
+                      selectedIndex: _currentIndex,
+                      onDestinationSelected: _onNavigate,
+                      labelType: NavigationRailLabelType.all,
+                      backgroundColor: AppTheme.surface,
+                      indicatorColor: AppTheme.primarySoft,
+                      selectedIconTheme: const IconThemeData(
+                        color: AppTheme.primary,
+                      ),
+                      unselectedIconTheme: const IconThemeData(
+                        color: AppTheme.muted,
+                      ),
+                      selectedLabelTextStyle: const TextStyle(
+                        color: AppTheme.primary,
+                        fontWeight: FontWeight.w700,
+                        fontSize: 12,
+                      ),
+                      unselectedLabelTextStyle: const TextStyle(
+                        color: AppTheme.muted,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 12,
+                      ),
+                      leading: const SizedBox(height: 12),
+                      destinations: navItems,
+                    ),
+                  ),
+                  Expanded(child: pageView),
+                ],
+              ),
+              floatingActionButton: _currentIndex == 0 && _isSelectionMode
+                  ? FloatingActionButton(
+                      onPressed: _performDelete,
+                      backgroundColor: AppTheme.danger,
+                      child: const Icon(Icons.delete),
+                    )
+                  : null,
             );
-          },
-          items: const [
-            BottomNavigationBarItem(icon: Icon(Icons.list), label: '列表'),
-            BottomNavigationBarItem(icon: Icon(Icons.bar_chart), label: '统计'),
-            BottomNavigationBarItem(icon: Icon(Icons.sticky_note_2), label: '笔记'),
-            BottomNavigationBarItem(icon: Icon(Icons.checklist), label: '待办'),
-          ],
-        ),
-        floatingActionButton: _currentIndex == 0 && _isSelectionMode
-            ? FloatingActionButton(
-                onPressed: _performDelete,
-                backgroundColor: Colors.red,
-                child: const Icon(Icons.delete),
-              )
-            : null,
+          }
+
+          return Scaffold(
+            body: pageView,
+            bottomNavigationBar: SafeArea(
+              child: Container(
+                margin: const EdgeInsets.fromLTRB(14, 0, 14, 12),
+                decoration: BoxDecoration(
+                  color: AppTheme.surface,
+                  borderRadius: BorderRadius.circular(18),
+                  border: Border.all(color: AppTheme.border),
+                  boxShadow: AppTheme.cardShadow,
+                ),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(18),
+                  child: BottomNavigationBar(
+                    backgroundColor: AppTheme.surface,
+                    currentIndex: _currentIndex,
+                    onTap: _onNavigate,
+                    items: const [
+                      BottomNavigationBarItem(
+                        icon: Icon(Icons.view_agenda_outlined),
+                        activeIcon: Icon(Icons.view_agenda),
+                        label: 'Entries',
+                      ),
+                      BottomNavigationBarItem(
+                        icon: Icon(Icons.query_stats_outlined),
+                        activeIcon: Icon(Icons.query_stats),
+                        label: 'Insights',
+                      ),
+                      BottomNavigationBarItem(
+                        icon: Icon(Icons.sticky_note_2_outlined),
+                        activeIcon: Icon(Icons.sticky_note_2),
+                        label: 'Notes',
+                      ),
+                      BottomNavigationBarItem(
+                        icon: Icon(Icons.checklist_outlined),
+                        activeIcon: Icon(Icons.checklist),
+                        label: 'Tasks',
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+            floatingActionButton: _currentIndex == 0 && _isSelectionMode
+                ? FloatingActionButton(
+                    onPressed: _performDelete,
+                    backgroundColor: AppTheme.danger,
+                    child: const Icon(Icons.delete),
+                  )
+                : null,
+          );
+        },
       ),
     );
   }

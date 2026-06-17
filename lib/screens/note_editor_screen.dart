@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_quill/flutter_quill.dart';
 
 import '../models/note_item.dart';
+import '../theme/app_theme.dart';
 import '../utils/note_persistence.dart';
 
 class NoteEditorScreen extends StatefulWidget {
@@ -16,7 +17,7 @@ class NoteEditorScreen extends StatefulWidget {
 }
 
 class _NoteEditorScreenState extends State<NoteEditorScreen> {
-  static const _noteFontFamily = 'sans-serif';
+  static const _noteFontFamily = AppTheme.fontSerif;
 
   final NotePersistenceService _service = NotePersistenceService();
   late final TextEditingController _titleController;
@@ -30,7 +31,9 @@ class _NoteEditorScreenState extends State<NoteEditorScreen> {
   @override
   void initState() {
     super.initState();
-    _titleController = TextEditingController(text: widget.initialNote?.title ?? '');
+    _titleController = TextEditingController(
+      text: widget.initialNote?.title ?? '',
+    );
     _editorFocusNode = FocusNode();
     _editorScrollController = ScrollController();
 
@@ -44,7 +47,9 @@ class _NoteEditorScreenState extends State<NoteEditorScreen> {
       readOnly: false,
     );
     _initialTitle = _titleController.text.trim();
-    _initialDeltaJson = jsonEncode(_quillController.document.toDelta().toJson());
+    _initialDeltaJson = jsonEncode(
+      _quillController.document.toDelta().toJson(),
+    );
   }
 
   @override
@@ -58,8 +63,11 @@ class _NoteEditorScreenState extends State<NoteEditorScreen> {
 
   bool get _hasChanges {
     final currentTitle = _titleController.text.trim();
-    final currentDeltaJson = jsonEncode(_quillController.document.toDelta().toJson());
-    return currentTitle != _initialTitle || currentDeltaJson != _initialDeltaJson;
+    final currentDeltaJson = jsonEncode(
+      _quillController.document.toDelta().toJson(),
+    );
+    return currentTitle != _initialTitle ||
+        currentDeltaJson != _initialDeltaJson;
   }
 
   Future<void> _saveNote() async {
@@ -70,7 +78,7 @@ class _NoteEditorScreenState extends State<NoteEditorScreen> {
 
     final plainText = _quillController.document.toPlainText().trim();
     final title = _titleController.text.trim().isEmpty
-        ? (plainText.isEmpty ? '未命名笔记' : plainText.split('\n').first)
+        ? (plainText.isEmpty ? 'Untitled note' : plainText.split('\n').first)
         : _titleController.text.trim();
 
     final now = DateTime.now();
@@ -115,32 +123,77 @@ class _NoteEditorScreenState extends State<NoteEditorScreen> {
         paragraph: paragraph.copyWith(
           style: paragraph.style.copyWith(
             fontFamily: _noteFontFamily,
+            fontFamilyFallback: AppTheme.fontFallback,
             fontSize: 18,
             height: 1.55,
             fontWeight: FontWeight.w500,
-            color: Colors.black87,
+            color: AppTheme.ink,
           ),
         ),
         placeHolder: base.placeHolder?.copyWith(
           style: base.placeHolder?.style.copyWith(
             fontFamily: _noteFontFamily,
+            fontFamilyFallback: AppTheme.fontFallback,
             fontSize: 18,
             height: 1.55,
-            color: Colors.black45,
+            color: AppTheme.faint,
           ),
         ),
         h1: base.h1?.copyWith(
           style: base.h1?.style.copyWith(
             fontFamily: _noteFontFamily,
+            fontFamilyFallback: AppTheme.fontFallback,
             fontWeight: FontWeight.w800,
-            color: Colors.black87,
+            color: AppTheme.ink,
           ),
         ),
         h2: base.h2?.copyWith(
           style: base.h2?.style.copyWith(
             fontFamily: _noteFontFamily,
+            fontFamilyFallback: AppTheme.fontFallback,
             fontWeight: FontWeight.w700,
-            color: Colors.black87,
+            color: AppTheme.ink,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildEditorToolbar() {
+    return Container(
+      height: 48,
+      margin: const EdgeInsets.symmetric(horizontal: 16),
+      padding: const EdgeInsets.symmetric(horizontal: 6),
+      decoration: BoxDecoration(
+        color: AppTheme.raisedSurface,
+        borderRadius: BorderRadius.circular(AppTheme.radiusCard),
+        border: Border.all(color: AppTheme.border),
+        boxShadow: AppTheme.cardShadow,
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(AppTheme.radiusCard),
+        child: QuillSimpleToolbar(
+          controller: _quillController,
+          config: const QuillSimpleToolbarConfig(
+            multiRowsDisplay: false,
+            toolbarSize: 32,
+            showDividers: false,
+            showFontFamily: false,
+            showFontSize: false,
+            showSmallButton: false,
+            showInlineCode: false,
+            showColorButton: false,
+            showBackgroundColorButton: false,
+            showAlignmentButtons: false,
+            showHeaderStyle: false,
+            showCodeBlock: false,
+            showIndent: false,
+            showDirection: false,
+            showSearchButton: false,
+            showSubscript: false,
+            showSuperscript: false,
+            color: AppTheme.raisedSurface,
+            sectionDividerColor: AppTheme.border,
           ),
         ),
       ),
@@ -162,14 +215,12 @@ class _NoteEditorScreenState extends State<NoteEditorScreen> {
             onPressed: _handleBackNavigation,
             icon: const Icon(Icons.arrow_back),
           ),
-          title: Text(widget.initialNote == null ? '新建笔记' : '编辑笔记'),
+          title: Text(widget.initialNote == null ? 'New note' : 'Edit note'),
           actions: [
-            TextButton(
-              onPressed: _saveNote,
-              child: const Text('保存'),
-            ),
+            TextButton(onPressed: _saveNote, child: const Text('Save')),
           ],
         ),
+        backgroundColor: AppTheme.background,
         body: SafeArea(
           child: Column(
             children: [
@@ -179,34 +230,24 @@ class _NoteEditorScreenState extends State<NoteEditorScreen> {
                   controller: _titleController,
                   style: const TextStyle(
                     fontFamily: _noteFontFamily,
+                    fontFamilyFallback: AppTheme.fontFallback,
                     fontSize: 20,
                     fontWeight: FontWeight.w800,
-                    color: Colors.black87,
+                    color: AppTheme.ink,
                   ),
-                  decoration: const InputDecoration(
-                    labelText: '标题',
-                    border: OutlineInputBorder(),
-                  ),
+                  decoration: const InputDecoration(labelText: 'Title'),
                 ),
               ),
-              QuillSimpleToolbar(
-                controller: _quillController,
-                config: QuillSimpleToolbarConfig(
-                  multiRowsDisplay: true,
-                  showClipboardPaste: true,
-                  showDividers: false,
-                  color: Colors.white,
-                  sectionDividerColor: Colors.grey.shade300,
-                ),
-              ),
+              _buildEditorToolbar(),
+              const SizedBox(height: 8),
               Expanded(
                 child: QuillEditor.basic(
                   controller: _quillController,
                   focusNode: _editorFocusNode,
                   scrollController: _editorScrollController,
                   config: QuillEditorConfig(
-                    placeholder: '开始记录你的想法...',
-                    padding: const EdgeInsets.all(16),
+                    placeholder: 'Start shaping the thought...',
+                    padding: const EdgeInsets.fromLTRB(18, 18, 18, 28),
                     customStyles: _editorStyles(context),
                   ),
                 ),

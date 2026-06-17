@@ -18,19 +18,15 @@ class NotePersistenceService {
 
   Future<void> upsertNote(NoteItem note) async {
     final db = await LocalDatabase.instance.database;
-    await db.insert(
-      'notes',
-      {
-        'id': note.id,
-        'title': note.title,
-        'delta_json': note.deltaJson,
-        'plain_text_preview': note.plainTextPreview,
-        'created_at': note.createdAt.toIso8601String(),
-        'updated_at': note.updatedAt.toIso8601String(),
-        'archived_at': note.archivedAt?.toIso8601String(),
-      },
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
+    await db.insert('notes', {
+      'id': note.id,
+      'title': note.title,
+      'delta_json': note.deltaJson,
+      'plain_text_preview': note.plainTextPreview,
+      'created_at': note.createdAt.toIso8601String(),
+      'updated_at': note.updatedAt.toIso8601String(),
+      'archived_at': note.archivedAt?.toIso8601String(),
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
     await _deletedRecordService.clearDeletion(
       entityType: DeletedRecordService.entityNote,
       entityId: note.id,
@@ -56,10 +52,7 @@ class NotePersistenceService {
     final db = await LocalDatabase.instance.database;
     await db.update(
       'notes',
-      {
-        'archived_at': null,
-        'updated_at': DateTime.now().toIso8601String(),
-      },
+      {'archived_at': null, 'updated_at': DateTime.now().toIso8601String()},
       where: 'id = ?',
       whereArgs: [id],
     );

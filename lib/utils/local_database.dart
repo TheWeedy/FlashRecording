@@ -80,9 +80,7 @@ class LocalDatabase {
           await db.execute(
             'UPDATE time_events SET updated_at = added_at WHERE updated_at IS NULL',
           );
-          await db.execute(
-            'ALTER TABLE todo_items ADD COLUMN updated_at TEXT',
-          );
+          await db.execute('ALTER TABLE todo_items ADD COLUMN updated_at TEXT');
           await db.execute(
             'UPDATE todo_items SET updated_at = created_at WHERE updated_at IS NULL',
           );

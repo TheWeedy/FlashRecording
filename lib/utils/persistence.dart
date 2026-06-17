@@ -19,10 +19,7 @@ class PersistenceService {
     await _migrateLegacyEventsIfNeeded();
 
     final db = await LocalDatabase.instance.database;
-    final rows = await db.query(
-      'time_events',
-      orderBy: 'added_at DESC',
-    );
+    final rows = await db.query('time_events', orderBy: 'added_at DESC');
 
     if (rows.isNotEmpty) {
       return rows
@@ -55,7 +52,9 @@ class PersistenceService {
     final db = await LocalDatabase.instance.database;
     await db.transaction((txn) async {
       final existingRows = await txn.query('time_events', columns: ['id']);
-      final existingIds = existingRows.map((row) => row['id'] as String).toSet();
+      final existingIds = existingRows
+          .map((row) => row['id'] as String)
+          .toSet();
       final nextIds = events.map((event) => event.id).toSet();
 
       for (final deletedId in existingIds.difference(nextIds)) {
@@ -158,7 +157,9 @@ class PersistenceService {
   }
 
   Future<int> _queryEventCount(Database db) async {
-    final result = await db.rawQuery('SELECT COUNT(*) AS count FROM time_events');
+    final result = await db.rawQuery(
+      'SELECT COUNT(*) AS count FROM time_events',
+    );
     if (result.isEmpty) {
       return 0;
     }

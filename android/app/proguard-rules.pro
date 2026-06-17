@@ -2,6 +2,11 @@
 -keep class io.flutter.embedding.** { *; }
 -keep class io.flutter.plugins.** { *; }
 -keep class androidx.lifecycle.DefaultLifecycleObserver
+
+# Keep classes for flutter_local_notifications plugin
+-keep class com.dexterous.flutterlocalnotifications.** { *; }
+-keep class dexposed.flutterlocalnotifications.** { *; }
+
 -dontwarn com.google.android.play.core.splitcompat.SplitCompatApplication
 -dontwarn com.google.android.play.core.splitinstall.SplitInstallException
 -dontwarn com.google.android.play.core.splitinstall.SplitInstallManager

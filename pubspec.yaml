@@ -16,7 +16,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
 # In Windows, build-name is used as the major, minor, and patch parts
 # of the product and file versions while build-number is used as the build suffix.
-version: 3.1.0+7
+version: 4.0.0+1
 
 environment:
   sdk: ^3.10.7
@@ -61,6 +61,12 @@ dev_dependencies:
 dependency_overrides:
   intl: 0.20.2
 
+hooks:
+  user_defines:
+    sqlite3:
+      source: system
+      name: sqlite3
+
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
 
@@ -71,6 +77,23 @@ flutter:
   # included with your application, so that you can use the icons in
   # the material Icons class.
   uses-material-design: true
+
+  assets:
+    - assets/app_icon.png
+
+  fonts:
+    - family: NotoSerif
+      fonts:
+        - asset: assets/fonts/NotoSerif-Regular.ttf
+          weight: 400
+        - asset: assets/fonts/NotoSerif-SemiBold.ttf
+          weight: 600
+        - asset: assets/fonts/NotoSerif-Bold.ttf
+          weight: 700
+    - family: NotoSerifSC
+      fonts:
+        - asset: assets/fonts/NotoSerifCJKsc-Regular.otf
+          weight: 400
 
 flutter_launcher_icons:
   android: true

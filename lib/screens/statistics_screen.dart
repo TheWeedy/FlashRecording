@@ -4,7 +4,9 @@ import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 
 import '../models/time_event.dart';
+import '../theme/app_theme.dart';
 import '../utils/todo_persistence.dart';
+import '../widgets/app_components.dart';
 
 enum StatisticsViewMode { day, week }
 
@@ -29,7 +31,9 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
   @override
   void initState() {
     super.initState();
-    _selectedDate = widget.events.isEmpty ? DateTime.now() : widget.events.first.addedAt;
+    _selectedDate = widget.events.isEmpty
+        ? DateTime.now()
+        : widget.events.first.addedAt;
     _loadTodoColors();
   }
 
@@ -66,13 +70,16 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
     });
   }
 
-  DateTime get _startOfSelectedWeek =>
-      _dateOnly(_selectedDate).subtract(Duration(days: _selectedDate.weekday - 1));
+  DateTime get _startOfSelectedWeek => _dateOnly(
+    _selectedDate,
+  ).subtract(Duration(days: _selectedDate.weekday - 1));
 
   List<TimeEvent> get _filteredEvents {
     if (_viewMode == StatisticsViewMode.day) {
       final day = _dateOnly(_selectedDate);
-      return widget.events.where((event) => _isSameDay(event.addedAt, day)).toList()
+      return widget.events
+          .where((event) => _isSameDay(event.addedAt, day))
+          .toList()
         ..sort((a, b) => a.addedAt.compareTo(b.addedAt));
     }
 
@@ -81,14 +88,13 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
     return widget.events.where((event) {
       final timestamp = event.addedAt;
       return !timestamp.isBefore(start) && timestamp.isBefore(end);
-    }).toList()
-      ..sort((a, b) => a.addedAt.compareTo(b.addedAt));
+    }).toList()..sort((a, b) => a.addedAt.compareTo(b.addedAt));
   }
 
   Map<String, _TagStats> get _tagStats {
     final stats = <String, _TagStats>{};
     for (final event in _filteredEvents) {
-      final label = event.linkedTodoTitle ?? '未命名标签';
+      final label = _tagForEvent(event);
       final current = stats[label];
       stats[label] = _TagStats(
         label: label,
@@ -100,19 +106,34 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
     return stats;
   }
 
-  int get _totalMinutes => _filteredEvents.fold(0, (sum, event) => sum + event.totalMinutes);
+  int get _totalMinutes =>
+      _filteredEvents.fold(0, (sum, event) => sum + event.totalMinutes);
 
   Color _colorForEvent(TimeEvent event) {
     return _todoColorMap[event.linkedTodoId] ??
         switch (event.linkedTodoId) {
-          'system-work' => Colors.blue.shade600,
-          'system-study' => Colors.green.shade600,
-          'system-play' => Colors.orange.shade700,
-          _ => Colors.teal.shade600,
+          'system-work' => AppTheme.steel,
+          'system-study' => AppTheme.success,
+          'system-play' => AppTheme.copper,
+          _ => AppTheme.primary,
         };
   }
 
-  DateTime _dateOnly(DateTime value) => DateTime(value.year, value.month, value.day);
+  String _tagForEvent(TimeEvent event) {
+    switch (event.linkedTodoId) {
+      case 'system-work':
+        return 'Work';
+      case 'system-study':
+        return 'Study';
+      case 'system-play':
+        return 'Leisure';
+      default:
+        return event.linkedTodoTitle ?? 'No tag';
+    }
+  }
+
+  DateTime _dateOnly(DateTime value) =>
+      DateTime(value.year, value.month, value.day);
 
   bool _isSameDay(DateTime a, DateTime b) {
     return a.year == b.year && a.month == b.month && a.day == b.day;
@@ -126,28 +147,32 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
     final hours = totalMinutes ~/ 60;
     final minutes = totalMinutes % 60;
     if (hours == 0) {
-      return '$minutes 分钟';
+      return '$minutes min';
     }
     if (minutes == 0) {
-      return '$hours 小时';
+      return '$hours hr';
     }
-    return '$hours 小时 $minutes 分钟';
+    return '$hours hr $minutes min';
   }
 
   Widget _buildSummaryCards() {
     return Row(
       children: [
         Expanded(
-          child: _SummaryCard(
-            label: '记录次数',
-            value: '${_filteredEvents.length} 次',
+          child: MetricTile(
+            label: 'Entries',
+            value: '${_filteredEvents.length}',
+            icon: Icons.numbers,
+            accent: AppTheme.primary,
           ),
         ),
-        const SizedBox(width: 12),
+        const SizedBox(width: 10),
         Expanded(
-          child: _SummaryCard(
-            label: '记录时长',
+          child: MetricTile(
+            label: 'Tracked time',
             value: _formatDuration(_totalMinutes),
+            icon: Icons.timelapse,
+            accent: AppTheme.steel,
           ),
         ),
       ],
@@ -163,74 +188,88 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
       });
     final displayValues = <double>[
       for (final entry in entries)
-        entry.minutes > 0 ? entry.minutes.toDouble() : math.max(entry.count * 24.0, 12.0),
+        entry.minutes > 0
+            ? entry.minutes.toDouble()
+            : math.max(entry.count * 24.0, 12.0),
     ];
-    final totalDisplayValue = displayValues.fold<double>(0, (sum, value) => sum + value);
+    final totalDisplayValue = displayValues.fold<double>(
+      0,
+      (sum, value) => sum + value,
+    );
 
     if (entries.isEmpty) {
-      return const Card(
-        child: Padding(
-          padding: EdgeInsets.all(18),
-          child: Text(
-            '当前时间范围内没有可统计的数据。',
-            style: TextStyle(fontWeight: FontWeight.w700),
-          ),
-        ),
+      return const EmptyState(
+        icon: Icons.pie_chart_outline,
+        title: 'No chartable data',
+        message: 'Add entries inside this range to see tag share.',
       );
     }
 
     final touchedEntry =
-        _touchedPieIndex >= 0 && _touchedPieIndex < entries.length ? entries[_touchedPieIndex] : null;
+        _touchedPieIndex >= 0 && _touchedPieIndex < entries.length
+        ? entries[_touchedPieIndex]
+        : null;
 
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: () {
-        if (_touchedPieIndex != -1) {
-          setState(() {
-            _touchedPieIndex = -1;
-          });
-        }
-      },
-      child: Card(
-        child: Padding(
-          padding: const EdgeInsets.all(18),
+    return FadeSlideIn(
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: () {
+          if (_touchedPieIndex != -1) {
+            setState(() {
+              _touchedPieIndex = -1;
+            });
+          }
+        },
+        child: AppPanel(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const Text(
-                '标签占比',
-                style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900),
+                'Tag share',
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w700,
+                  color: AppTheme.ink,
+                ),
               ),
               const SizedBox(height: 12),
               Center(
-                child: SizedBox(
-                  width: 280,
-                  height: 280,
-                  child: PieChart(
-                    PieChartData(
-                      pieTouchData: PieTouchData(
-                        touchCallback: (_, response) {
-                          setState(() {
-                            _touchedPieIndex = response?.touchedSection?.touchedSectionIndex ?? -1;
-                          });
-                        },
-                      ),
-                      sectionsSpace: 4,
-                      centerSpaceRadius: 56,
-                      sections: [
-                        for (var i = 0; i < entries.length; i++)
-                          PieChartSectionData(
-                            color: entries[i].color,
-                            value: displayValues[i],
-                            radius: _touchedPieIndex == i ? 102.0 : 92.0,
-                            title: '${((displayValues[i] / math.max(totalDisplayValue, 1)) * 100).toStringAsFixed(0)}%',
-                            titleStyle: const TextStyle(
-                              fontSize: 15,
-                              fontWeight: FontWeight.w900,
-                              color: Colors.white,
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(
+                    maxWidth: 280,
+                    maxHeight: 280,
+                  ),
+                  child: AspectRatio(
+                    aspectRatio: 1,
+                    child: PieChart(
+                      PieChartData(
+                        pieTouchData: PieTouchData(
+                          touchCallback: (_, response) {
+                            setState(() {
+                              _touchedPieIndex =
+                                  response?.touchedSection?.touchedSectionIndex ??
+                                  -1;
+                            });
+                          },
+                        ),
+                        sectionsSpace: 4,
+                        centerSpaceRadius: 56,
+                        sections: [
+                          for (var i = 0; i < entries.length; i++)
+                            PieChartSectionData(
+                              color: entries[i].color,
+                              value: displayValues[i],
+                              radius: _touchedPieIndex == i ? 102.0 : 92.0,
+                              title:
+                                  '${((displayValues[i] / math.max(totalDisplayValue, 1)) * 100).toStringAsFixed(0)}%',
+                              titleStyle: const TextStyle(
+                                fontSize: 15,
+                                fontWeight: FontWeight.w700,
+                                color: Colors.white,
+                              ),
                             ),
-                          ),
-                      ],
+                        ],
+                      ),
                     ),
                   ),
                 ),
@@ -250,13 +289,13 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
                     color: touchedEntry.color.withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(12),
+                    borderRadius: BorderRadius.circular(AppTheme.radiusCard),
                   ),
                   child: Text(
-                    '${touchedEntry.label}：${touchedEntry.count} 次，${_formatDuration(touchedEntry.minutes)}',
+                    '${touchedEntry.label}: ${touchedEntry.count} times, ${_formatDuration(touchedEntry.minutes)}',
                     style: const TextStyle(
                       fontSize: 15,
-                      fontWeight: FontWeight.w800,
+                      fontWeight: FontWeight.w700,
                     ),
                   ),
                 ),
@@ -269,26 +308,28 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
 
   Widget _buildTimeline() {
     if (_filteredEvents.isEmpty) {
-      return const Card(
-        child: Padding(
-          padding: EdgeInsets.all(18),
-          child: Text(
-            '当前时间范围内没有记录，时间轴会在新增记录后显示。',
-            style: TextStyle(fontWeight: FontWeight.w700),
-          ),
-        ),
+      return const EmptyState(
+        icon: Icons.timeline_outlined,
+        title: 'No timeline yet',
+        message: 'The timeline appears after entries are added to this range.',
       );
     }
 
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(18, 18, 18, 22),
+    return FadeSlideIn(
+      delay: const Duration(milliseconds: 90),
+      child: AppPanel(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              _viewMode == StatisticsViewMode.day ? '单日时间轴' : '本周时间轴',
-              style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w900),
+              _viewMode == StatisticsViewMode.day
+                  ? 'Daily timeline'
+                  : 'Weekly timeline',
+              style: const TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.w700,
+                color: AppTheme.ink,
+              ),
             ),
             const SizedBox(height: 14),
             _viewMode == StatisticsViewMode.day
@@ -298,6 +339,7 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
                     hourRowHeight: _hourRowHeight,
                     formatDuration: _formatDuration,
                     colorForEvent: _colorForEvent,
+                    tagForEvent: _tagForEvent,
                   )
                 : _WeekTimeline(
                     weekStart: _startOfSelectedWeek,
@@ -305,6 +347,7 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
                     hourRowHeight: _hourRowHeight,
                     formatDuration: _formatDuration,
                     colorForEvent: _colorForEvent,
+                    tagForEvent: _tagForEvent,
                   ),
           ],
         ),
@@ -314,65 +357,128 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final title = _viewMode == StatisticsViewMode.day
-        ? '日期：${_formatDate(_selectedDate)}'
-        : '周范围：${_formatDate(_startOfSelectedWeek)} - ${_formatDate(_startOfSelectedWeek.add(const Duration(days: 6)))}';
+    final rangeLabel = _viewMode == StatisticsViewMode.day
+        ? 'Date ${_formatDate(_selectedDate)}'
+        : 'Week ${_formatDate(_startOfSelectedWeek)} - ${_formatDate(_startOfSelectedWeek.add(const Duration(days: 6)))}';
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text(
-          '统计',
-          style: TextStyle(fontWeight: FontWeight.w900),
+      body: SafeArea(
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final isLandscape = constraints.maxWidth > constraints.maxHeight;
+
+            final header = Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                PageIntro(
+                  eyebrow: 'Analytics',
+                  title: 'Insights',
+                  description: rangeLabel,
+                  trailing: QuietIconButton(
+                    onPressed: _pickDate,
+                    icon: Icons.calendar_month,
+                    tooltip: 'Choose date',
+                  ),
+                ),
+                const SizedBox(height: 16),
+                SegmentedButton<StatisticsViewMode>(
+                  segments: const [
+                    ButtonSegment(
+                      value: StatisticsViewMode.day,
+                      label: Text('Day'),
+                      icon: Icon(Icons.today),
+                    ),
+                    ButtonSegment(
+                      value: StatisticsViewMode.week,
+                      label: Text('Week'),
+                      icon: Icon(Icons.view_week),
+                    ),
+                  ],
+                  selected: {_viewMode},
+                  onSelectionChanged: (selection) {
+                    setState(() {
+                      _viewMode = selection.first;
+                      _touchedPieIndex = -1;
+                    });
+                  },
+                ),
+                const SizedBox(height: 16),
+              ],
+            );
+
+            if (isLandscape) {
+              return Padding(
+                padding: const EdgeInsets.fromLTRB(
+                  AppTheme.pagePadding,
+                  18,
+                  AppTheme.pagePadding,
+                  18,
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      flex: 4,
+                      child: Padding(
+                        padding: const EdgeInsets.only(right: 32),
+                        child: CustomScrollView(
+                          slivers: [
+                            SliverToBoxAdapter(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  header,
+                                  _buildSummaryCards(),
+                                  const SizedBox(height: 16),
+                                ],
+                              ),
+                            ),
+                            SliverFillRemaining(
+                              hasScrollBody: true,
+                              child: Padding(
+                                padding: const EdgeInsets.only(bottom: 24),
+                                child: Center(
+                                  child: _buildPieChart(),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    Expanded(
+                      flex: 5,
+                      child: Container(
+                        padding: const EdgeInsets.only(top: 0),
+                        child: SingleChildScrollView(
+                          padding: const EdgeInsets.only(bottom: 104),
+                          child: _buildTimeline(),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            }
+
+            return ListView(
+              padding: const EdgeInsets.fromLTRB(
+                AppTheme.pagePadding,
+                18,
+                AppTheme.pagePadding,
+                104,
+              ),
+              children: [
+                header,
+                _buildSummaryCards(),
+                const SizedBox(height: 16),
+                _buildPieChart(),
+                const SizedBox(height: 16),
+                _buildTimeline(),
+              ],
+            );
+          },
         ),
-        actions: [
-          IconButton(
-            onPressed: _pickDate,
-            icon: const Icon(Icons.calendar_month),
-            tooltip: '选择日期',
-          ),
-        ],
-      ),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          Text(
-            title,
-            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
-          ),
-          const SizedBox(height: 12),
-          SegmentedButton<StatisticsViewMode>(
-            segments: const [
-              ButtonSegment(
-                value: StatisticsViewMode.day,
-                label: Text('单日'),
-                icon: Icon(Icons.today),
-              ),
-              ButtonSegment(
-                value: StatisticsViewMode.week,
-                label: Text('周视图'),
-                icon: Icon(Icons.view_week),
-              ),
-            ],
-            selected: {_viewMode},
-            onSelectionChanged: (selection) {
-              setState(() {
-                _viewMode = selection.first;
-                _touchedPieIndex = -1;
-              });
-            },
-            style: const ButtonStyle(
-              textStyle: WidgetStatePropertyAll(
-                TextStyle(fontSize: 15, fontWeight: FontWeight.w800),
-              ),
-            ),
-          ),
-          const SizedBox(height: 16),
-          _buildSummaryCards(),
-          const SizedBox(height: 16),
-          _buildPieChart(),
-          const SizedBox(height: 16),
-          _buildTimeline(),
-        ],
       ),
     );
   }
@@ -399,71 +505,7 @@ class _LegendChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(
-        color: entry.color.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            width: 12,
-            height: 12,
-            decoration: BoxDecoration(
-              color: entry.color,
-              borderRadius: BorderRadius.circular(999),
-            ),
-          ),
-          const SizedBox(width: 8),
-          Text(
-            entry.label,
-            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w800),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _SummaryCard extends StatelessWidget {
-  const _SummaryCard({
-    required this.label,
-    required this.value,
-  });
-
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              label,
-              style: const TextStyle(
-                fontSize: 13,
-                color: Colors.grey,
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              value,
-              style: const TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.w900,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
+    return AppChip(label: entry.label, color: entry.color);
   }
 }
 
@@ -474,6 +516,7 @@ class _DayTimeline extends StatelessWidget {
     required this.hourRowHeight,
     required this.formatDuration,
     required this.colorForEvent,
+    required this.tagForEvent,
   });
 
   final DateTime date;
@@ -481,20 +524,25 @@ class _DayTimeline extends StatelessWidget {
   final double hourRowHeight;
   final String Function(int minutes) formatDuration;
   final Color Function(TimeEvent event) colorForEvent;
+  final String Function(TimeEvent event) tagForEvent;
 
   @override
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        final scaleWidth = constraints.maxWidth * 0.32;
+        final scaleWidth = constraints.maxWidth * 0.28;
         final timelineHeight = hourRowHeight * 24;
 
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              '${date.month}月${date.day}日',
-              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w900),
+              _monthDay(date),
+              style: const TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w700,
+                color: AppTheme.ink,
+              ),
             ),
             const SizedBox(height: 12),
             SizedBox(
@@ -510,6 +558,7 @@ class _DayTimeline extends StatelessWidget {
                     child: _TimelineColumn(
                       events: events,
                       colorForEvent: colorForEvent,
+                      tagForEvent: tagForEvent,
                       formatDuration: formatDuration,
                       hourRowHeight: hourRowHeight,
                     ),
@@ -522,6 +571,24 @@ class _DayTimeline extends StatelessWidget {
       },
     );
   }
+
+  String _monthDay(DateTime date) {
+    const months = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
+    return '${months[date.month - 1]} ${date.day}';
+  }
 }
 
 class _WeekTimeline extends StatelessWidget {
@@ -531,6 +598,7 @@ class _WeekTimeline extends StatelessWidget {
     required this.hourRowHeight,
     required this.formatDuration,
     required this.colorForEvent,
+    required this.tagForEvent,
   });
 
   final DateTime weekStart;
@@ -538,15 +606,19 @@ class _WeekTimeline extends StatelessWidget {
   final double hourRowHeight;
   final String Function(int minutes) formatDuration;
   final Color Function(TimeEvent event) colorForEvent;
+  final String Function(TimeEvent event) tagForEvent;
 
   @override
   Widget build(BuildContext context) {
-    final days = List.generate(7, (index) => weekStart.add(Duration(days: index)));
-    const weekdayLabels = ['一', '二', '三', '四', '五', '六', '日'];
+    final days = List.generate(
+      7,
+      (index) => weekStart.add(Duration(days: index)),
+    );
+    const weekdayLabels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        final scaleWidth = constraints.maxWidth * 0.32;
+        final scaleWidth = constraints.maxWidth * 0.28;
         final timelineHeight = hourRowHeight * 24;
 
         return Column(
@@ -562,10 +634,11 @@ class _WeekTimeline extends StatelessWidget {
                         Expanded(
                           child: Center(
                             child: Text(
-                              '周${weekdayLabels[i]}',
+                              weekdayLabels[i],
                               style: const TextStyle(
-                                fontSize: 15,
-                                fontWeight: FontWeight.w900,
+                                fontSize: 13,
+                                fontWeight: FontWeight.w700,
+                                color: AppTheme.muted,
                               ),
                             ),
                           ),
@@ -591,7 +664,9 @@ class _WeekTimeline extends StatelessWidget {
                         for (final day in days)
                           Expanded(
                             child: Padding(
-                              padding: const EdgeInsets.symmetric(horizontal: 2),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 2,
+                              ),
                               child: _TimelineColumn(
                                 events: events.where((event) {
                                   return event.addedAt.year == day.year &&
@@ -599,6 +674,7 @@ class _WeekTimeline extends StatelessWidget {
                                       event.addedAt.day == day.day;
                                 }).toList(),
                                 colorForEvent: colorForEvent,
+                                tagForEvent: tagForEvent,
                                 formatDuration: formatDuration,
                                 hourRowHeight: hourRowHeight,
                               ),
@@ -634,9 +710,10 @@ class _TimeScale extends StatelessWidget {
               child: Text(
                 '${hour.toString().padLeft(2, '0')}:00',
                 style: const TextStyle(
-                  fontSize: 17,
-                  fontWeight: FontWeight.w900,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
                   height: 1,
+                  color: AppTheme.muted,
                 ),
               ),
             ),
@@ -650,12 +727,14 @@ class _TimelineColumn extends StatelessWidget {
   const _TimelineColumn({
     required this.events,
     required this.colorForEvent,
+    required this.tagForEvent,
     required this.formatDuration,
     required this.hourRowHeight,
   });
 
   final List<TimeEvent> events;
   final Color Function(TimeEvent event) colorForEvent;
+  final String Function(TimeEvent event) tagForEvent;
   final String Function(int minutes) formatDuration;
   final double hourRowHeight;
 
@@ -665,9 +744,9 @@ class _TimelineColumn extends StatelessWidget {
 
     return Container(
       decoration: BoxDecoration(
-        color: Colors.grey.shade50,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: Colors.grey.shade300),
+        color: AppTheme.raisedSurface,
+        borderRadius: BorderRadius.circular(AppTheme.radiusCard),
+        border: Border.all(color: AppTheme.border),
       ),
       child: Stack(
         clipBehavior: Clip.hardEdge,
@@ -681,7 +760,9 @@ class _TimelineColumn extends StatelessWidget {
                       decoration: BoxDecoration(
                         border: Border(
                           top: BorderSide(
-                            color: i == 0 ? Colors.transparent : Colors.grey.shade200,
+                            color: i == 0
+                                ? Colors.transparent
+                                : AppTheme.border.withValues(alpha: 0.55),
                           ),
                         ),
                       ),
@@ -691,11 +772,7 @@ class _TimelineColumn extends StatelessWidget {
             ),
           ),
           for (final event in events)
-            _buildEventOverlay(
-              context,
-              event: event,
-              totalHeight: totalHeight,
-            ),
+            _buildEventOverlay(context, event: event, totalHeight: totalHeight),
         ],
       ),
     );
@@ -709,7 +786,8 @@ class _TimelineColumn extends StatelessWidget {
     final timestamp = event.addedAt;
     final minuteOfDay = timestamp.hour * 60 + timestamp.minute;
     final top = (minuteOfDay / (24 * 60)) * totalHeight;
-    final fillColor = colorForEvent(event).withValues(alpha: 0.22);
+    final label = tagForEvent(event);
+    final fillColor = colorForEvent(event).withValues(alpha: 0.18);
     final borderColor = colorForEvent(event);
 
     if (event.recordMode == EventRecordMode.count) {
@@ -719,7 +797,7 @@ class _TimelineColumn extends StatelessWidget {
         right: 10,
         child: Tooltip(
           message:
-              '${event.linkedTodoTitle ?? event.description}\n${timestamp.hour.toString().padLeft(2, '0')}:${timestamp.minute.toString().padLeft(2, '0')} · 1 次',
+              '$label\n${timestamp.hour.toString().padLeft(2, '0')}:${timestamp.minute.toString().padLeft(2, '0')} · 1 time',
           child: Align(
             alignment: Alignment.centerLeft,
             child: Container(
@@ -738,31 +816,34 @@ class _TimelineColumn extends StatelessWidget {
 
     final startMinutes = minuteOfDay - event.totalMinutes;
     final startTop = (startMinutes / (24 * 60)) * totalHeight;
-    final height = math.max((event.totalMinutes / (24 * 60)) * totalHeight, 26.0);
+    final height = math.max(
+      (event.totalMinutes / (24 * 60)) * totalHeight,
+      26.0,
+    );
 
     return Positioned(
       top: startTop.clamp(0.0, totalHeight - height),
       left: 8,
       right: 8,
       child: Tooltip(
-        message: '${event.linkedTodoTitle ?? event.description}\n${formatDuration(event.totalMinutes)}',
+        message: '$label\n${formatDuration(event.totalMinutes)}',
         child: Container(
           height: height,
           decoration: BoxDecoration(
             color: fillColor,
-            borderRadius: BorderRadius.circular(18),
-            border: Border.all(color: borderColor, width: 1.6),
+            borderRadius: BorderRadius.circular(AppTheme.radiusCard),
+            border: Border.all(color: borderColor, width: 1.5),
           ),
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
           alignment: Alignment.topLeft,
           child: Text(
-            event.linkedTodoTitle ?? event.description,
+            label,
             maxLines: height > 40 ? 2 : 1,
             overflow: TextOverflow.ellipsis,
             style: const TextStyle(
-              color: Colors.black87,
-              fontSize: 17,
-              fontWeight: FontWeight.w900,
+              color: AppTheme.ink,
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
               height: 1,
             ),
           ),

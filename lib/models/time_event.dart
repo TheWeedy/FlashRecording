@@ -30,17 +30,17 @@ class TimeEvent {
   int get totalMinutes => hours * 60 + minutes;
 
   Map<String, dynamic> toJson() => {
-        'id': id,
-        'hours': hours,
-        'minutes': minutes,
-        'description': description,
-        'note': note,
-        'addedAt': addedAt.toIso8601String(),
-        'type': type.name,
-        'linkedTodoId': linkedTodoId,
-        'linkedTodoTitle': linkedTodoTitle,
-        'recordMode': recordMode.name,
-      };
+    'id': id,
+    'hours': hours,
+    'minutes': minutes,
+    'description': description,
+    'note': note,
+    'addedAt': addedAt.toIso8601String(),
+    'type': type.name,
+    'linkedTodoId': linkedTodoId,
+    'linkedTodoTitle': linkedTodoTitle,
+    'recordMode': recordMode.name,
+  };
 
   factory TimeEvent.fromJson(Map<String, dynamic> json) {
     return TimeEvent(
@@ -62,33 +62,33 @@ class TimeEvent {
 
   String get displayDuration {
     if (recordMode == EventRecordMode.count) {
-      return '1 次';
+      return '1 time';
     }
 
     if (hours == 0 && minutes == 0) {
-      return '0 分钟';
+      return '0 min';
     }
     final parts = <String>[];
     if (hours > 0) {
-      parts.add('$hours 小时');
+      parts.add('$hours hr');
     }
     if (minutes > 0) {
-      parts.add('$minutes 分钟');
+      parts.add('$minutes min');
     }
-    return parts.join('');
+    return parts.join(' ');
   }
 
   String get typeName {
     switch (type) {
       case EventType.work:
-        return '工作';
+        return 'Work';
       case EventType.study:
-        return '学习';
+        return 'Study';
       case EventType.play:
-        return '娱乐';
+        return 'Leisure';
     }
   }
 
   String get recordModeName =>
-      recordMode == EventRecordMode.count ? '按次数' : '按时长';
+      recordMode == EventRecordMode.count ? 'Count' : 'Duration';
 }
