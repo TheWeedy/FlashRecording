@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_markdown/flutter_markdown.dart';
 
 import '../theme/app_theme.dart';
 
@@ -343,6 +344,61 @@ class AppChip extends StatelessWidget {
     return ConstrainedBox(
       constraints: BoxConstraints(maxWidth: width),
       child: chip,
+    );
+  }
+}
+
+class AiMarkdownBlock extends StatelessWidget {
+  const AiMarkdownBlock({super.key, required this.data});
+
+  final String data;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context).textTheme;
+    final bodyStyle = theme.bodyMedium?.copyWith(
+      color: AppTheme.ink,
+      height: 1.5,
+      fontWeight: FontWeight.w500,
+    );
+
+    return MarkdownBody(
+      data: data,
+      selectable: true,
+      styleSheet: MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(
+        p: bodyStyle,
+        listBullet: bodyStyle?.copyWith(color: AppTheme.primary),
+        strong: bodyStyle?.copyWith(fontWeight: FontWeight.w800),
+        em: bodyStyle?.copyWith(fontStyle: FontStyle.italic),
+        h1: theme.titleLarge?.copyWith(
+          color: AppTheme.ink,
+          fontWeight: FontWeight.w800,
+          height: 1.25,
+        ),
+        h2: theme.titleMedium?.copyWith(
+          color: AppTheme.ink,
+          fontWeight: FontWeight.w800,
+          height: 1.3,
+        ),
+        h3: theme.titleSmall?.copyWith(
+          color: AppTheme.ink,
+          fontWeight: FontWeight.w800,
+          height: 1.35,
+        ),
+        blockquote: bodyStyle?.copyWith(color: AppTheme.muted),
+        code: theme.bodyMedium?.copyWith(
+          color: AppTheme.steel,
+          backgroundColor: AppTheme.primarySoft,
+          fontFamily: 'monospace',
+        ),
+        codeblockDecoration: BoxDecoration(
+          color: AppTheme.primarySoft,
+          borderRadius: BorderRadius.circular(AppTheme.radiusControl),
+          border: Border.all(color: AppTheme.border),
+        ),
+        blockSpacing: 10,
+        listIndent: 22,
+      ),
     );
   }
 }

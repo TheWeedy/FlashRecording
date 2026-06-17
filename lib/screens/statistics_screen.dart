@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 
 import '../models/time_event.dart';
 import '../theme/app_theme.dart';
+import '../utils/ai_service.dart';
 import '../utils/todo_persistence.dart';
 import '../widgets/app_components.dart';
 
@@ -23,10 +24,13 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
   static const double _hourRowHeight = 52;
 
   final TodoPersistenceService _todoService = TodoPersistenceService();
+  final AiService _aiService = AiService();
   late DateTime _selectedDate;
   StatisticsViewMode _viewMode = StatisticsViewMode.day;
   int _touchedPieIndex = -1;
   Map<String, Color> _todoColorMap = {};
+  bool _isAiLoading = false;
+  String? _aiInsight;
 
   @override
   void initState() {
@@ -67,6 +71,7 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
     setState(() {
       _selectedDate = picked;
       _touchedPieIndex = -1;
+      _aiInsight = null;
     });
   }
 
@@ -153,6 +158,92 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
       return '$hours hr';
     }
     return '$hours hr $minutes min';
+  }
+
+  Future<void> _generateAiInsight() async {
+    if (_filteredEvents.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Add entries first, then ask AI.')),
+      );
+      return;
+    }
+
+    setState(() {
+      _isAiLoading = true;
+      _aiInsight = null;
+    });
+
+    try {
+      final result = await _aiService.complete(
+        systemPrompt:
+            'You are an insightful time management coach. Respond in concise, practical Chinese. Use markdown bullets.',
+        userPrompt: _buildInsightPrompt(),
+      );
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _aiInsight = result;
+      });
+    } on AiServiceException catch (error) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(error.message)));
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isAiLoading = false;
+        });
+      }
+    }
+  }
+
+  String _buildInsightPrompt() {
+    final modeLabel = _viewMode == StatisticsViewMode.day ? '每日' : '每周';
+    final rangeLabel = _viewMode == StatisticsViewMode.day
+        ? _formatDate(_selectedDate)
+        : '${_formatDate(_startOfSelectedWeek)} - ${_formatDate(_startOfSelectedWeek.add(const Duration(days: 6)))}';
+    final tagLines = _tagStats.values
+        .map(
+          (entry) =>
+              '- ${entry.label}: ${entry.count}次，${_formatDuration(entry.minutes)}',
+        )
+        .join('\n');
+    final eventLines = _filteredEvents
+        .map((event) {
+          final time =
+              '${event.addedAt.hour.toString().padLeft(2, '0')}:${event.addedAt.minute.toString().padLeft(2, '0')}';
+          final label = _tagForEvent(event);
+          final title = event.description.trim().isEmpty
+              ? '(no title)'
+              : event.description.trim();
+          final note = event.note.trim().isEmpty
+              ? ''
+              : '；备注：${event.note.trim()}';
+          return '- $time [$label] $title，${event.displayDuration}$note';
+        })
+        .join('\n');
+
+    return '''
+请分析 RecordMyTime 的$modeLabel时间记录，给出：
+1. 主要时间流向
+2. 精力和节奏观察
+3. 可执行的改进建议
+4. 明日/下阶段计划建议
+
+范围：$rangeLabel
+总记录：${_filteredEvents.length}次
+总时长：${_formatDuration(_totalMinutes)}
+
+分类统计：
+$tagLines
+
+时间线：
+$eventLines
+''';
   }
 
   Widget _buildSummaryCards() {
@@ -247,7 +338,9 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
                           touchCallback: (_, response) {
                             setState(() {
                               _touchedPieIndex =
-                                  response?.touchedSection?.touchedSectionIndex ??
+                                  response
+                                      ?.touchedSection
+                                      ?.touchedSectionIndex ??
                                   -1;
                             });
                           },
@@ -355,6 +448,59 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
     );
   }
 
+  Widget _buildAiInsightPanel() {
+    return FadeSlideIn(
+      delay: const Duration(milliseconds: 120),
+      child: AppPanel(
+        color: AppTheme.raisedSurface,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(
+                  Icons.auto_awesome_outlined,
+                  color: AppTheme.primary,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'AI schedule insight',
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+                TextButton.icon(
+                  onPressed: _isAiLoading ? null : _generateAiInsight,
+                  icon: _isAiLoading
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.psychology_outlined),
+                  label: Text(_isAiLoading ? 'Thinking' : 'Analyze'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            if (_aiInsight == null)
+              Text(
+                'Use your selected range to generate a practical schedule review and next-step plan.',
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: AppTheme.muted,
+                  height: 1.5,
+                ),
+              )
+            else
+              AiMarkdownBlock(data: _aiInsight!),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final rangeLabel = _viewMode == StatisticsViewMode.day
@@ -430,6 +576,8 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
                                   header,
                                   _buildSummaryCards(),
                                   const SizedBox(height: 16),
+                                  _buildAiInsightPanel(),
+                                  const SizedBox(height: 16),
                                 ],
                               ),
                             ),
@@ -437,9 +585,7 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
                               hasScrollBody: true,
                               child: Padding(
                                 padding: const EdgeInsets.only(bottom: 24),
-                                child: Center(
-                                  child: _buildPieChart(),
-                                ),
+                                child: Center(child: _buildPieChart()),
                               ),
                             ),
                           ],
@@ -471,6 +617,8 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
               children: [
                 header,
                 _buildSummaryCards(),
+                const SizedBox(height: 16),
+                _buildAiInsightPanel(),
                 const SizedBox(height: 16),
                 _buildPieChart(),
                 const SizedBox(height: 16),

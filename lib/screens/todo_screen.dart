@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../models/todo_item.dart';
 import '../theme/app_theme.dart';
+import '../utils/ai_service.dart';
 import '../utils/cloud_sync_service.dart';
 import '../utils/notification_service.dart';
 import '../utils/todo_persistence.dart';
@@ -33,10 +34,13 @@ class _TodoScreenState extends State<TodoScreen> {
   ];
 
   final TodoPersistenceService _service = TodoPersistenceService();
+  final AiService _aiService = AiService();
 
   List<TodoItem> _activeTodos = [];
   List<TodoItem> _archivedTodos = [];
   bool _isLoading = true;
+  bool _isAiLoading = false;
+  String? _aiPlan;
 
   @override
   void initState() {
@@ -302,6 +306,132 @@ class _TodoScreenState extends State<TodoScreen> {
     await _loadTodos();
   }
 
+  Future<void> _generateAiPlan() async {
+    if (_activeTodos.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Create task tags before asking AI.')),
+      );
+      return;
+    }
+
+    setState(() {
+      _isAiLoading = true;
+      _aiPlan = null;
+    });
+
+    try {
+      final result = await _aiService.complete(
+        systemPrompt:
+            'You are a practical planning assistant. Respond in concise Chinese with clear markdown bullets.',
+        userPrompt: _buildTaskPlanPrompt(),
+      );
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _aiPlan = result;
+      });
+    } on AiServiceException catch (error) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(error.message)));
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isAiLoading = false;
+        });
+      }
+    }
+  }
+
+  String _buildTaskPlanPrompt() {
+    String itemLine(TodoItem item) {
+      return '- ${item.title}: ${item.totalCount}次，${_formatMinutes(item.totalDurationMinutes)}';
+    }
+
+    return '''
+请根据 RecordMyTime 当前任务标签制定计划建议，输出：
+1. 任务优先级排序
+2. 今天/下一工作段的推荐安排
+3. 哪些标签需要拆分、合并或新增
+4. 每个建议背后的理由
+
+活跃标签：
+${_activeTodos.map(itemLine).join('\n')}
+
+归档标签：
+${_archivedTodos.isEmpty ? '- 无' : _archivedTodos.map(itemLine).join('\n')}
+''';
+  }
+
+  String _formatMinutes(int totalMinutes) {
+    final hours = totalMinutes ~/ 60;
+    final minutes = totalMinutes % 60;
+    if (hours == 0) {
+      return '$minutes min';
+    }
+    if (minutes == 0) {
+      return '$hours hr';
+    }
+    return '$hours hr $minutes min';
+  }
+
+  Widget _buildAiPlanPanel() {
+    return FadeSlideIn(
+      delay: const Duration(milliseconds: 80),
+      child: AppPanel(
+        color: AppTheme.raisedSurface,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(
+                  Icons.auto_awesome_outlined,
+                  color: AppTheme.primary,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'AI planning',
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+                TextButton.icon(
+                  onPressed: _isAiLoading ? null : _generateAiPlan,
+                  icon: _isAiLoading
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.route_outlined),
+                  label: Text(_isAiLoading ? 'Planning' : 'Recommend'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            if (_aiPlan == null)
+              Text(
+                'Generate a plan from your active tags, tracked counts, and accumulated time.',
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: AppTheme.muted,
+                  height: 1.5,
+                ),
+              )
+            else
+              AiMarkdownBlock(data: _aiPlan!),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
@@ -349,6 +479,8 @@ class _TodoScreenState extends State<TodoScreen> {
                   ),
                 ],
               ),
+              const SizedBox(height: 16),
+              _buildAiPlanPanel(),
               const SizedBox(height: 16),
             ],
           ),
