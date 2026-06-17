@@ -3,18 +3,23 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_quill/flutter_quill.dart';
+import 'package:receive_sharing_intent/receive_sharing_intent.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'app_info.dart';
 import 'models/time_event.dart';
 import 'screens/event_list_screen.dart';
+import 'screens/files_screen.dart';
 import 'screens/note_list_screen.dart';
 import 'screens/statistics_screen.dart';
 import 'screens/todo_screen.dart';
 import 'screens/welcome_screen.dart';
 import 'theme/app_theme.dart';
+import 'utils/app_localizations.dart';
+import 'utils/app_preferences_service.dart';
 import 'utils/cloud_sync_service.dart';
+import 'utils/file_library_service.dart';
 import 'utils/notification_service.dart';
 import 'utils/persistence.dart';
 
@@ -35,18 +40,27 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: '$appDisplayName $appVersion',
-      localizationsDelegates: FlutterQuillLocalizations.localizationsDelegates,
-      supportedLocales: FlutterQuillLocalizations.supportedLocales,
-      theme: AppTheme.light(),
-      home: const AppBootstrap(),
+    return ValueListenableBuilder<AppPreferences>(
+      valueListenable: AppPreferencesService.instance.notifier,
+      builder: (context, preferences, _) {
+        final l10n = AppLocalizations(preferences);
+        return MaterialApp(
+          title: '$appDisplayName $appVersion',
+          localizationsDelegates:
+              FlutterQuillLocalizations.localizationsDelegates,
+          supportedLocales: FlutterQuillLocalizations.supportedLocales,
+          theme: AppTheme.light(),
+          home: AppBootstrap(appTitle: l10n.appName),
+        );
+      },
     );
   }
 }
 
 class AppBootstrap extends StatefulWidget {
-  const AppBootstrap({super.key});
+  const AppBootstrap({super.key, required this.appTitle});
+
+  final String appTitle;
 
   @override
   State<AppBootstrap> createState() => _AppBootstrapState();
@@ -63,6 +77,7 @@ class _AppBootstrapState extends State<AppBootstrap> {
 
   Future<void> _loadWelcomeState() async {
     final prefs = await SharedPreferences.getInstance();
+    await AppPreferencesService.instance.load();
     if (!mounted) {
       return;
     }
@@ -91,7 +106,7 @@ class _AppBootstrapState extends State<AppBootstrap> {
     if (showWelcome) {
       return WelcomeScreen(onContinue: _dismissWelcome);
     }
-    return const MyHomePage(title: 'Record My Time');
+    return MyHomePage(title: widget.appTitle);
   }
 }
 
@@ -106,21 +121,26 @@ class MyHomePage extends StatefulWidget {
 
 class _MyHomePageState extends State<MyHomePage> {
   late final PageController _pageController;
+  final FileLibraryService _fileLibraryService = FileLibraryService();
+  final GlobalKey<FilesScreenState> _filesKey = GlobalKey<FilesScreenState>();
   int _currentIndex = 0;
   List<TimeEvent> _events = [];
   Set<String> _selectedIds = {};
   bool _isSelectionMode = false;
   bool _isLoading = true;
+  StreamSubscription<List<SharedMediaFile>>? _shareSubscription;
 
   @override
   void initState() {
     super.initState();
     _pageController = PageController();
     _bootstrap();
+    _listenForSharedContent();
   }
 
   @override
   void dispose() {
+    _shareSubscription?.cancel();
     _pageController.dispose();
     super.dispose();
   }
@@ -143,6 +163,86 @@ class _MyHomePageState extends State<MyHomePage> {
     setState(() {
       _events = events;
       _isLoading = false;
+    });
+  }
+
+  void _listenForSharedContent() {
+    if (!Platform.isAndroid && !Platform.isIOS) {
+      return;
+    }
+    _shareSubscription = ReceiveSharingIntent.instance.getMediaStream().listen(
+      _handleSharedMedia,
+    );
+    unawaited(
+      ReceiveSharingIntent.instance.getInitialMedia().then((media) {
+        if (media.isNotEmpty) {
+          _handleSharedMedia(media);
+          ReceiveSharingIntent.instance.reset();
+        }
+      }),
+    );
+  }
+
+  Future<void> _handleSharedMedia(List<SharedMediaFile> media) async {
+    if (media.isEmpty) {
+      return;
+    }
+    var imported = 0;
+    try {
+      for (final item in media) {
+        if (item.type == SharedMediaType.text ||
+            item.type == SharedMediaType.url) {
+          final text = item.path.trim();
+          if (text.isEmpty) {
+            continue;
+          }
+          await _fileLibraryService.addSharedText(text);
+        } else {
+          await _fileLibraryService.addFile(item.path, mimeType: item.mimeType);
+        }
+        imported++;
+      }
+      await _filesKey.currentState?.refresh();
+      if (!mounted || imported == 0) {
+        return;
+      }
+      _navigateToFilesTab();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(context.l10n.addedItemsToFiles(imported))),
+      );
+    } on FileLibraryException catch (error) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(context.l10n.localizeError(error.message))),
+      );
+    }
+  }
+
+  void _navigateToFilesTab() {
+    if (Platform.isMacOS) {
+      return;
+    }
+    const filesIndex = 4;
+    if (_currentIndex == filesIndex) {
+      return;
+    }
+    setState(() {
+      _currentIndex = filesIndex;
+    });
+    if (_pageController.hasClients) {
+      _pageController.animateToPage(
+        filesIndex,
+        duration: AppTheme.medium,
+        curve: Curves.easeOutCubic,
+      );
+      return;
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_pageController.hasClients) {
+        _pageController.jumpToPage(filesIndex);
+      }
     });
   }
 
@@ -181,18 +281,18 @@ class _MyHomePageState extends State<MyHomePage> {
         await showDialog<bool>(
           context: context,
           builder: (context) => AlertDialog(
-            title: const Text('Delete selected entries?'),
+            title: Text(context.l10n.deleteSelectedEntries),
             content: Text(
-              'This will remove ${_selectedIds.length} selected entries from this device and the next sync snapshot.',
+              context.l10n.deleteEntriesMessage(_selectedIds.length),
             ),
             actions: [
               TextButton(
                 onPressed: () => Navigator.of(context).pop(false),
-                child: const Text('Cancel'),
+                child: Text(context.l10n.cancel),
               ),
               FilledButton(
                 onPressed: () => Navigator.of(context).pop(true),
-                child: const Text('Delete'),
+                child: Text(context.l10n.delete),
               ),
             ],
           ),
@@ -231,6 +331,8 @@ class _MyHomePageState extends State<MyHomePage> {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
+    final filesEnabled = !Platform.isMacOS;
+    final l10n = context.l10n;
     final screens = [
       EventListScreen(
         events: _events,
@@ -243,29 +345,36 @@ class _MyHomePageState extends State<MyHomePage> {
       StatisticsScreen(events: _events),
       const NoteListScreen(),
       const TodoScreen(),
+      if (filesEnabled) FilesScreen(key: _filesKey),
     ];
 
-    const navItems = [
+    final navItems = [
       NavigationRailDestination(
-        icon: Icon(Icons.view_agenda_outlined),
-        selectedIcon: Icon(Icons.view_agenda),
-        label: Text('Entries'),
+        icon: const Icon(Icons.view_agenda_outlined),
+        selectedIcon: const Icon(Icons.view_agenda),
+        label: Text(l10n.navEntries),
       ),
       NavigationRailDestination(
-        icon: Icon(Icons.query_stats_outlined),
-        selectedIcon: Icon(Icons.query_stats),
-        label: Text('Insights'),
+        icon: const Icon(Icons.query_stats_outlined),
+        selectedIcon: const Icon(Icons.query_stats),
+        label: Text(l10n.navInsights),
       ),
       NavigationRailDestination(
-        icon: Icon(Icons.sticky_note_2_outlined),
-        selectedIcon: Icon(Icons.sticky_note_2),
-        label: Text('Notes'),
+        icon: const Icon(Icons.sticky_note_2_outlined),
+        selectedIcon: const Icon(Icons.sticky_note_2),
+        label: Text(l10n.navNotes),
       ),
       NavigationRailDestination(
-        icon: Icon(Icons.checklist_outlined),
-        selectedIcon: Icon(Icons.checklist),
-        label: Text('Tasks'),
+        icon: const Icon(Icons.checklist_outlined),
+        selectedIcon: const Icon(Icons.checklist),
+        label: Text(l10n.navTasks),
       ),
+      if (filesEnabled)
+        NavigationRailDestination(
+          icon: const Icon(Icons.folder_copy_outlined),
+          selectedIcon: const Icon(Icons.folder_copy),
+          label: Text(l10n.navFiles),
+        ),
     ];
 
     return PopScope(
@@ -359,27 +468,33 @@ class _MyHomePageState extends State<MyHomePage> {
                     backgroundColor: AppTheme.surface,
                     currentIndex: _currentIndex,
                     onTap: _onNavigate,
-                    items: const [
+                    items: [
                       BottomNavigationBarItem(
-                        icon: Icon(Icons.view_agenda_outlined),
-                        activeIcon: Icon(Icons.view_agenda),
-                        label: 'Entries',
+                        icon: const Icon(Icons.view_agenda_outlined),
+                        activeIcon: const Icon(Icons.view_agenda),
+                        label: l10n.navEntries,
                       ),
                       BottomNavigationBarItem(
-                        icon: Icon(Icons.query_stats_outlined),
-                        activeIcon: Icon(Icons.query_stats),
-                        label: 'Insights',
+                        icon: const Icon(Icons.query_stats_outlined),
+                        activeIcon: const Icon(Icons.query_stats),
+                        label: l10n.navInsights,
                       ),
                       BottomNavigationBarItem(
-                        icon: Icon(Icons.sticky_note_2_outlined),
-                        activeIcon: Icon(Icons.sticky_note_2),
-                        label: 'Notes',
+                        icon: const Icon(Icons.sticky_note_2_outlined),
+                        activeIcon: const Icon(Icons.sticky_note_2),
+                        label: l10n.navNotes,
                       ),
                       BottomNavigationBarItem(
-                        icon: Icon(Icons.checklist_outlined),
-                        activeIcon: Icon(Icons.checklist),
-                        label: 'Tasks',
+                        icon: const Icon(Icons.checklist_outlined),
+                        activeIcon: const Icon(Icons.checklist),
+                        label: l10n.navTasks,
                       ),
+                      if (filesEnabled)
+                        BottomNavigationBarItem(
+                          icon: const Icon(Icons.folder_copy_outlined),
+                          activeIcon: const Icon(Icons.folder_copy),
+                          label: l10n.navFiles,
+                        ),
                     ],
                   ),
                 ),

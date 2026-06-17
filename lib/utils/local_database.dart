@@ -7,7 +7,7 @@ class LocalDatabase {
   static final LocalDatabase instance = LocalDatabase._();
 
   static const _databaseName = 'record_my_time.db';
-  static const _databaseVersion = 7;
+  static const _databaseVersion = 8;
 
   Database? _database;
 
@@ -93,6 +93,9 @@ class LocalDatabase {
             )
           ''');
         }
+        if (oldVersion < 8) {
+          await _createFileLibraryTables(db);
+        }
       },
     );
 
@@ -149,6 +152,45 @@ class LocalDatabase {
         entity_type TEXT NOT NULL,
         entity_id TEXT NOT NULL,
         deleted_at TEXT NOT NULL
+      )
+    ''');
+
+    await _createFileLibraryTables(db);
+  }
+
+  Future<void> _createFileLibraryTables(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS file_items (
+        id TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        mime_type TEXT NOT NULL DEFAULT '',
+        original_url TEXT NOT NULL DEFAULT '',
+        local_path TEXT NOT NULL DEFAULT '',
+        markdown_path TEXT NOT NULL DEFAULT '',
+        plain_text_preview TEXT NOT NULL DEFAULT '',
+        size_bytes INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        archived_at TEXT
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS file_tags (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+        created_at TEXT NOT NULL
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS file_item_tags (
+        file_item_id TEXT NOT NULL,
+        tag_id TEXT NOT NULL,
+        PRIMARY KEY (file_item_id, tag_id),
+        FOREIGN KEY (file_item_id) REFERENCES file_items(id) ON DELETE CASCADE,
+        FOREIGN KEY (tag_id) REFERENCES file_tags(id) ON DELETE CASCADE
       )
     ''');
   }

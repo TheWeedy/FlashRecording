@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../theme/app_theme.dart';
+import '../utils/app_localizations.dart';
 import '../widgets/app_components.dart';
 
 class WelcomeScreen extends StatelessWidget {
@@ -11,6 +12,7 @@ class WelcomeScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final textTheme = Theme.of(context).textTheme;
+    final l10n = context.l10n;
     return Scaffold(
       body: ColoredBox(
         color: AppTheme.background,
@@ -45,7 +47,7 @@ class WelcomeScreen extends StatelessWidget {
                       FadeSlideIn(
                         delay: const Duration(milliseconds: 70),
                         child: Text(
-                          'Record My Time',
+                          l10n.welcomeTitle,
                           style: textTheme.displaySmall?.copyWith(
                             fontWeight: FontWeight.w700,
                             color: AppTheme.ink,
@@ -57,7 +59,7 @@ class WelcomeScreen extends StatelessWidget {
                       FadeSlideIn(
                         delay: const Duration(milliseconds: 120),
                         child: Text(
-                          'A calm operating layer for entries, tasks, notes, and sync. Keep the local-first flow you trust, with a cleaner workspace around it.',
+                          l10n.welcomeSubtitle,
                           style: textTheme.bodyLarge?.copyWith(
                             height: 1.55,
                             color: AppTheme.muted,
@@ -77,34 +79,31 @@ class WelcomeScreen extends StatelessWidget {
                       vertical: 18,
                     ),
                     child: Column(
-                      children: const [
+                      children: [
                         FadeSlideIn(
-                          delay: Duration(milliseconds: 180),
+                          delay: const Duration(milliseconds: 180),
                           child: _WelcomePoint(
                             icon: Icons.cloud_done_outlined,
-                            title: 'Automatic cloud sync',
-                            description:
-                                'Sign in once and changes will move between devices through PocketBase.',
+                            title: l10n.welcomeSyncTitle,
+                            description: l10n.welcomeSyncBody,
                           ),
                         ),
-                        SizedBox(height: 16),
+                        const SizedBox(height: 16),
                         FadeSlideIn(
-                          delay: Duration(milliseconds: 240),
+                          delay: const Duration(milliseconds: 240),
                           child: _WelcomePoint(
                             icon: Icons.hub_outlined,
-                            title: 'Connected work objects',
-                            description:
-                                'Entries, tasks, and notes stay together so context does not drift.',
+                            title: l10n.welcomeObjectsTitle,
+                            description: l10n.welcomeObjectsBody,
                           ),
                         ),
-                        SizedBox(height: 16),
+                        const SizedBox(height: 16),
                         FadeSlideIn(
-                          delay: Duration(milliseconds: 300),
+                          delay: const Duration(milliseconds: 300),
                           child: _WelcomePoint(
                             icon: Icons.offline_bolt_outlined,
-                            title: 'Local-first by default',
-                            description:
-                                'Keep recording offline. Sync resumes quietly when the network returns.',
+                            title: l10n.welcomeLocalTitle,
+                            description: l10n.welcomeLocalBody,
                           ),
                         ),
                       ],
@@ -123,7 +122,7 @@ class WelcomeScreen extends StatelessWidget {
                         style: FilledButton.styleFrom(
                           padding: const EdgeInsets.symmetric(vertical: 16),
                         ),
-                        child: const Text('Start tracking'),
+                        child: Text(l10n.startTracking),
                       ),
                     ),
                   ),

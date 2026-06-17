@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../models/note_item.dart';
 import '../theme/app_theme.dart';
+import '../utils/app_localizations.dart';
 import '../utils/cloud_sync_service.dart';
 import '../utils/note_persistence.dart';
 import '../widgets/app_components.dart';
@@ -80,18 +81,16 @@ class _NoteListScreenState extends State<NoteListScreen> {
         await showDialog<bool>(
           context: context,
           builder: (context) => AlertDialog(
-            title: const Text('Delete selected notes?'),
-            content: Text(
-              'This will permanently remove ${_selectedIds.length} selected notes.',
-            ),
+            title: Text(context.l10n.deleteSelectedNotes),
+            content: Text(context.l10n.deleteNotesMessage(_selectedIds.length)),
             actions: [
               TextButton(
                 onPressed: () => Navigator.of(context).pop(false),
-                child: const Text('Cancel'),
+                child: Text(context.l10n.cancel),
               ),
               FilledButton(
                 onPressed: () => Navigator.of(context).pop(true),
-                child: const Text('Delete'),
+                child: Text(context.l10n.delete),
               ),
             ],
           ),
@@ -211,7 +210,7 @@ class _NoteListScreenState extends State<NoteListScreen> {
                         const SizedBox(height: 7),
                         Text(
                           note.plainTextPreview.isEmpty
-                              ? 'Blank note'
+                              ? context.l10n.ui('空白笔记', 'Blank note', '空白ノート')
                               : note.plainTextPreview,
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
@@ -221,7 +220,9 @@ class _NoteListScreenState extends State<NoteListScreen> {
                         const SizedBox(height: 10),
                         AppChip(
                           icon: Icons.update,
-                          label: 'Updated ${_formatDateTime(note.updatedAt)}',
+                          label: context.l10n.updatedAt(
+                            _formatDateTime(note.updatedAt),
+                          ),
                           color: AppTheme.steel,
                         ),
                       ],
@@ -230,14 +231,14 @@ class _NoteListScreenState extends State<NoteListScreen> {
                   const SizedBox(width: 8),
                   if (archived)
                     QuietIconButton(
-                      tooltip: 'Restore',
+                      tooltip: context.l10n.restore,
                       onPressed: () => _restoreNote(note),
                       icon: Icons.unarchive_outlined,
                       color: AppTheme.primary,
                     )
                   else if (!_isSelectionMode)
                     QuietIconButton(
-                      tooltip: 'Archive',
+                      tooltip: context.l10n.archive,
                       onPressed: () => _archiveNote(note),
                       icon: Icons.archive_outlined,
                       color: AppTheme.muted,
@@ -275,28 +276,34 @@ class _NoteListScreenState extends State<NoteListScreen> {
             ),
             children: [
               PageIntro(
-                eyebrow: 'Notebook',
+                eyebrow: context.l10n.notesEyebrow,
                 title: _isSelectionMode
-                    ? '${_selectedIds.length} selected'
-                    : 'Notes',
+                    ? context.l10n.selectedCount(_selectedIds.length)
+                    : context.l10n.notesTitle,
                 description: _isSelectionMode
-                    ? 'Review selected notes before deleting them.'
-                    : 'Keep the thinking beside the time records it explains.',
+                    ? context.l10n.ui(
+                        '删除前请确认选中的笔记。',
+                        'Review selected notes before deleting them.',
+                      )
+                    : context.l10n.ui(
+                        '把思考保存在对应的时间记录旁边。',
+                        'Keep the thinking beside the time records it explains.',
+                      ),
                 trailing: _isSelectionMode
                     ? QuietIconButton(
                         onPressed: _exitSelectionMode,
                         icon: Icons.close,
-                        tooltip: 'Exit selection',
+                        tooltip: context.l10n.clearSelection,
                         color: AppTheme.danger,
                       )
                     : null,
               ),
               const SizedBox(height: 18),
               if (_notes.isEmpty)
-                const EmptyState(
+                EmptyState(
                   icon: Icons.sticky_note_2_outlined,
-                  title: 'No notes yet',
-                  message: 'Create a note when an entry needs more context.',
+                  title: context.l10n.noNotesTitle,
+                  message: context.l10n.noNotesMessage,
                 )
               else
                 ...List.generate(
@@ -309,16 +316,16 @@ class _NoteListScreenState extends State<NoteListScreen> {
                 collapsedIconColor: AppTheme.muted,
                 iconColor: AppTheme.primary,
                 title: Text(
-                  'Archived (${_archivedNotes.length})',
+                  '${context.l10n.archivedNotes} (${_archivedNotes.length})',
                   style: const TextStyle(fontWeight: FontWeight.w700),
                 ),
                 children: _archivedNotes.isEmpty
-                    ? const [
+                    ? [
                         Padding(
-                          padding: EdgeInsets.only(bottom: 12),
+                          padding: const EdgeInsets.only(bottom: 12),
                           child: Align(
                             alignment: Alignment.centerLeft,
-                            child: Text('No archived notes'),
+                            child: Text(context.l10n.noArchivedNotes),
                           ),
                         ),
                       ]
@@ -343,7 +350,7 @@ class _NoteListScreenState extends State<NoteListScreen> {
               )
             : FloatingActionButton(
                 onPressed: _openEditor,
-                tooltip: 'Create note',
+                tooltip: context.l10n.createNote,
                 child: const Icon(Icons.add),
               ),
       ),

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../models/time_event.dart';
 import '../models/todo_item.dart';
 import '../theme/app_theme.dart';
+import '../utils/app_localizations.dart';
 import '../utils/todo_persistence.dart';
 import '../widgets/app_components.dart';
 import 'settings_screen.dart';
@@ -163,9 +164,9 @@ class _EventListScreenState extends State<EventListScreen> {
     int minutes = int.tryParse(_entryMinutesController.text.trim()) ?? 0;
 
     if (minutes < 0 || minutes > 59) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Minutes must be between 0 and 59.')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(context.l10n.minutesRangeError)));
       return;
     }
     if (hours < 0) {
@@ -176,14 +177,14 @@ class _EventListScreenState extends State<EventListScreen> {
     }
     if (_entryDescriptionController.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Enter an entry description.')),
+        SnackBar(content: Text(context.l10n.entryDescriptionRequired)),
       );
       return;
     }
     if (_entryLinkedTodoId == null) {
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(const SnackBar(content: Text('Choose a task tag.')));
+      ).showSnackBar(SnackBar(content: Text(context.l10n.chooseTaskTag)));
       return;
     }
 
@@ -193,9 +194,7 @@ class _EventListScreenState extends State<EventListScreen> {
     }
     if (linkedTodo == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('The selected task tag no longer exists.'),
-        ),
+        SnackBar(content: Text(context.l10n.selectedTaskTagMissing)),
       );
       return;
     }
@@ -355,22 +354,25 @@ class _EventListScreenState extends State<EventListScreen> {
                 ),
                 children: [
                   PageIntro(
-                    eyebrow: 'Activity ledger',
+                    eyebrow: context.l10n.entriesEyebrow,
                     title: widget.isSelectionMode
-                        ? '$selectedCount selected'
-                        : 'Entries',
+                        ? context.l10n.selectedCount(selectedCount)
+                        : context.l10n.navEntries,
                     description: widget.isSelectionMode
-                        ? 'Choose the records you want to remove from your local ledger.'
-                        : 'Capture the work as it happens, then let insights assemble the pattern.',
+                        ? context.l10n.ui(
+                            '选择要从本地记录中删除的条目。',
+                            'Choose the records you want to remove from your local ledger.',
+                          )
+                        : context.l10n.entriesDescription,
                     trailing: widget.isSelectionMode
                         ? QuietIconButton(
-                            tooltip: 'Exit selection',
+                            tooltip: context.l10n.clearSelection,
                             icon: Icons.close,
                             onPressed: widget.onToggleSelectionMode,
                             color: AppTheme.danger,
                           )
                         : QuietIconButton(
-                            tooltip: 'Settings',
+                            tooltip: context.l10n.settings,
                             icon: Icons.tune,
                             onPressed: _showSettingsDialog,
                           ),
@@ -380,7 +382,7 @@ class _EventListScreenState extends State<EventListScreen> {
                     children: [
                       Expanded(
                         child: MetricTile(
-                          label: 'Today',
+                          label: context.l10n.entriesTitle,
                           value: '${_todayEvents.length}',
                           icon: Icons.today_outlined,
                           accent: AppTheme.primary,
@@ -389,7 +391,7 @@ class _EventListScreenState extends State<EventListScreen> {
                       const SizedBox(width: 10),
                       Expanded(
                         child: MetricTile(
-                          label: 'Time',
+                          label: context.l10n.duration,
                           value: _formatDuration(_todayMinutes),
                           icon: Icons.timelapse,
                           accent: AppTheme.steel,
@@ -399,13 +401,12 @@ class _EventListScreenState extends State<EventListScreen> {
                   ),
                   const SizedBox(height: 16),
                   if (widget.events.isEmpty)
-                    const FadeSlideIn(
-                      delay: Duration(milliseconds: 80),
+                    FadeSlideIn(
+                      delay: const Duration(milliseconds: 80),
                       child: EmptyState(
                         icon: Icons.view_agenda_outlined,
-                        title: 'No entries yet',
-                        message:
-                            'Add your first entry to start building a timeline.',
+                        title: context.l10n.noEntriesTitle,
+                        message: context.l10n.noEntriesMessage,
                       ),
                     )
                   else
@@ -448,7 +449,7 @@ class _EventListScreenState extends State<EventListScreen> {
             ? null
             : FloatingActionButton(
                 onPressed: _openAddEventSheet,
-                tooltip: 'Add entry',
+                tooltip: context.l10n.addEntryTooltip,
                 child: const Icon(Icons.add),
               ),
       ),
@@ -517,7 +518,7 @@ class _AddEntrySheet extends StatelessWidget {
               ),
               const SizedBox(height: 18),
               Text(
-                'New entry',
+                context.l10n.addEntry,
                 style: theme.headlineSmall?.copyWith(
                   color: AppTheme.ink,
                   fontWeight: FontWeight.w700,
@@ -538,7 +539,7 @@ class _AddEntrySheet extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Task tag',
+                        context.l10n.taskTag,
                         style: theme.labelLarge?.copyWith(
                           color: AppTheme.muted,
                           fontWeight: FontWeight.w700,
@@ -583,8 +584,8 @@ class _AddEntrySheet extends StatelessWidget {
                             child: TextField(
                               controller: hoursController,
                               keyboardType: TextInputType.number,
-                              decoration: const InputDecoration(
-                                labelText: 'Hours',
+                              decoration: InputDecoration(
+                                labelText: context.l10n.hours,
                               ),
                             ),
                           ),
@@ -593,8 +594,8 @@ class _AddEntrySheet extends StatelessWidget {
                             child: TextField(
                               controller: minutesController,
                               keyboardType: TextInputType.number,
-                              decoration: const InputDecoration(
-                                labelText: 'Minutes',
+                              decoration: InputDecoration(
+                                labelText: context.l10n.minutes,
                               ),
                             ),
                           ),
@@ -607,8 +608,8 @@ class _AddEntrySheet extends StatelessWidget {
                         maxLines: 6,
                         keyboardType: TextInputType.multiline,
                         textInputAction: TextInputAction.newline,
-                        decoration: const InputDecoration(
-                          labelText: 'Entry description',
+                        decoration: InputDecoration(
+                          labelText: context.l10n.entryDescription,
                           alignLabelWithHint: true,
                         ),
                       ),
@@ -619,14 +620,17 @@ class _AddEntrySheet extends StatelessWidget {
                         maxLines: 5,
                         keyboardType: TextInputType.multiline,
                         textInputAction: TextInputAction.newline,
-                        decoration: const InputDecoration(
-                          labelText: 'Note, optional',
+                        decoration: InputDecoration(
+                          labelText: context.l10n.noteOptional,
                           alignLabelWithHint: true,
                         ),
                       ),
                       const SizedBox(height: 10),
                       Text(
-                        'Leave hours and minutes at 0 to record this as one count.',
+                        context.l10n.ui(
+                          '小时和分钟保持 0 时，将记录为一次计数。',
+                          'Leave hours and minutes at 0 to record this as one count.',
+                        ),
                         style: theme.bodySmall?.copyWith(
                           color: AppTheme.muted,
                           height: 1.35,
@@ -642,14 +646,14 @@ class _AddEntrySheet extends StatelessWidget {
                   Expanded(
                     child: OutlinedButton(
                       onPressed: onCancel,
-                      child: const Text('Cancel'),
+                      child: Text(context.l10n.cancel),
                     ),
                   ),
                   const SizedBox(width: 12),
                   Expanded(
                     child: FilledButton(
                       onPressed: onSubmit,
-                      child: const Text('Add entry'),
+                      child: Text(context.l10n.addEntry),
                     ),
                   ),
                 ],
@@ -717,7 +721,7 @@ class _EntryDetailDialog extends StatelessWidget {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            'Entry detail',
+                            context.l10n.entryDetail,
                             style: theme.titleLarge?.copyWith(
                               color: AppTheme.ink,
                               fontWeight: FontWeight.w800,
@@ -738,7 +742,7 @@ class _EntryDetailDialog extends StatelessWidget {
                     ),
                     const SizedBox(width: 8),
                     IconButton(
-                      tooltip: 'Close',
+                      tooltip: context.l10n.close,
                       onPressed: () => Navigator.of(context).pop(),
                       icon: const Icon(Icons.close),
                       style: IconButton.styleFrom(
@@ -782,7 +786,7 @@ class _EntryDetailDialog extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         _DetailBlock(
-                          label: 'Description',
+                          label: context.l10n.description,
                           child: SelectableText(
                             event.description,
                             style: theme.titleMedium?.copyWith(
@@ -794,7 +798,7 @@ class _EntryDetailDialog extends StatelessWidget {
                         ),
                         const SizedBox(height: 14),
                         _DetailBlock(
-                          label: 'Note',
+                          label: context.l10n.note,
                           child: Container(
                             width: double.infinity,
                             padding: const EdgeInsets.all(13),
@@ -807,7 +811,7 @@ class _EntryDetailDialog extends StatelessWidget {
                             ),
                             child: SelectableText(
                               event.note.isEmpty
-                                  ? 'No note attached.'
+                                  ? context.l10n.noNoteAttached
                                   : event.note,
                               style: theme.bodyMedium?.copyWith(
                                 color: event.note.isEmpty
@@ -824,15 +828,15 @@ class _EntryDetailDialog extends StatelessWidget {
                         const SizedBox(height: 14),
                         _DetailMetaRow(
                           icon: Icons.category_outlined,
-                          label: 'Task tag',
+                          label: context.l10n.taskTag,
                           value: tag,
                         ),
                         const SizedBox(height: 8),
                         _DetailMetaRow(
                           icon: Icons.av_timer_outlined,
                           label: event.recordMode == EventRecordMode.count
-                              ? 'Count'
-                              : 'Duration',
+                              ? context.l10n.count
+                              : context.l10n.duration,
                           value: event.displayDuration,
                         ),
                       ],

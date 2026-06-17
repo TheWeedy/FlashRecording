@@ -21,6 +21,27 @@ subprojects {
     project.evaluationDependsOn(":app")
 }
 
+subprojects {
+    plugins.withId("com.android.library") {
+        extensions.configure<com.android.build.gradle.LibraryExtension>("android") {
+            compileOptions {
+                sourceCompatibility = JavaVersion.VERSION_17
+                targetCompatibility = JavaVersion.VERSION_17
+            }
+        }
+    }
+    tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
+        compilerOptions {
+            val target = if (project.name == "quill_native_bridge_android") {
+                org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_11
+            } else {
+                org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17
+            }
+            jvmTarget.set(target)
+        }
+    }
+}
+
 tasks.register<Delete>("clean") {
     delete(rootProject.layout.buildDirectory)
 }

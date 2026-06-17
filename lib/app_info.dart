@@ -1,2 +1,2 @@
 const appDisplayName = 'Record My Time';
-const appVersion = '4.0';
+const appVersion = '6.0';

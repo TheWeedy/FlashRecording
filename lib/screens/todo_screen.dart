@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../models/todo_item.dart';
 import '../theme/app_theme.dart';
 import '../utils/ai_service.dart';
+import '../utils/app_localizations.dart';
 import '../utils/cloud_sync_service.dart';
 import '../utils/notification_service.dart';
 import '../utils/todo_persistence.dart';
@@ -75,23 +76,24 @@ class _TodoScreenState extends State<TodoScreen> {
     await showDialog<void>(
       context: context,
       builder: (dialogContext) {
+        final l10n = dialogContext.l10n;
         final navigator = Navigator.of(dialogContext);
         return StatefulBuilder(
           builder: (context, setDialogState) {
             return AlertDialog(
-              title: const Text('Create task tag'),
+              title: Text(l10n.createTaskTag),
               content: Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   TextField(
                     controller: titleController,
-                    decoration: const InputDecoration(labelText: 'Title'),
+                    decoration: InputDecoration(labelText: l10n.title),
                     autofocus: true,
                   ),
                   const SizedBox(height: 16),
                   Text(
-                    'Accent color',
+                    l10n.accentColor,
                     style: Theme.of(context).textTheme.labelLarge?.copyWith(
                       color: AppTheme.muted,
                       fontWeight: FontWeight.w700,
@@ -117,10 +119,7 @@ class _TodoScreenState extends State<TodoScreen> {
                 ],
               ),
               actions: [
-                TextButton(
-                  onPressed: navigator.pop,
-                  child: const Text('Cancel'),
-                ),
+                TextButton(onPressed: navigator.pop, child: Text(l10n.cancel)),
                 FilledButton(
                   onPressed: () async {
                     final title = titleController.text.trim();
@@ -138,7 +137,7 @@ class _TodoScreenState extends State<TodoScreen> {
                     navigator.pop();
                     await _loadTodos();
                   },
-                  child: const Text('Save'),
+                  child: Text(l10n.save),
                 ),
               ],
             );
@@ -153,16 +152,17 @@ class _TodoScreenState extends State<TodoScreen> {
     await showDialog<void>(
       context: context,
       builder: (dialogContext) {
+        final l10n = dialogContext.l10n;
         final navigator = Navigator.of(dialogContext);
         return AlertDialog(
-          title: const Text('Rename task tag'),
+          title: Text(l10n.renameTaskTag),
           content: TextField(
             controller: titleController,
             autofocus: true,
-            decoration: const InputDecoration(labelText: 'Title'),
+            decoration: InputDecoration(labelText: l10n.title),
           ),
           actions: [
-            TextButton(onPressed: navigator.pop, child: const Text('Cancel')),
+            TextButton(onPressed: navigator.pop, child: Text(l10n.cancel)),
             FilledButton(
               onPressed: () async {
                 final title = titleController.text.trim();
@@ -176,7 +176,7 @@ class _TodoScreenState extends State<TodoScreen> {
                 navigator.pop();
                 await _loadTodos();
               },
-              child: const Text('Save'),
+              child: Text(l10n.save),
             ),
           ],
         );
@@ -189,11 +189,12 @@ class _TodoScreenState extends State<TodoScreen> {
     await showDialog<void>(
       context: context,
       builder: (dialogContext) {
+        final l10n = dialogContext.l10n;
         final navigator = Navigator.of(dialogContext);
         return StatefulBuilder(
           builder: (context, setDialogState) {
             return AlertDialog(
-              title: Text('Change ${item.title} color'),
+              title: Text(l10n.changeColor(item.title)),
               content: Wrap(
                 spacing: 10,
                 runSpacing: 10,
@@ -211,10 +212,7 @@ class _TodoScreenState extends State<TodoScreen> {
                 ],
               ),
               actions: [
-                TextButton(
-                  onPressed: navigator.pop,
-                  child: const Text('Cancel'),
-                ),
+                TextButton(onPressed: navigator.pop, child: Text(l10n.cancel)),
                 FilledButton(
                   onPressed: () async {
                     await _service.updateTodoColor(
@@ -227,7 +225,7 @@ class _TodoScreenState extends State<TodoScreen> {
                     navigator.pop();
                     await _loadTodos();
                   },
-                  child: const Text('Save'),
+                  child: Text(l10n.save),
                 ),
               ],
             );
@@ -245,7 +243,7 @@ class _TodoScreenState extends State<TodoScreen> {
   Future<void> _sendReminder(TodoItem item) async {
     final shown = await NotificationService.instance.showTodoReminder(
       id: item.id.hashCode,
-      title: '${item.title} reminder',
+      title: context.l10n.reminderTitle(item.title),
       body: 'A small nudge to add one more signal today.',
     );
     if (!mounted) {
@@ -255,23 +253,22 @@ class _TodoScreenState extends State<TodoScreen> {
       await _showNotificationSettingsPrompt();
       return;
     }
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text('Reminder sent for ${item.title}.')));
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(context.l10n.reminderSent(item.title))),
+    );
   }
 
   Future<void> _showNotificationSettingsPrompt() async {
     await showDialog<void>(
       context: context,
       builder: (dialogContext) {
+        final l10n = dialogContext.l10n;
         final navigator = Navigator.of(dialogContext);
         return AlertDialog(
-          title: const Text('Notifications are off'),
-          content: const Text(
-            'Allow notifications for Record My Time in system settings, then send the reminder again.',
-          ),
+          title: Text(l10n.notificationsOff),
+          content: Text(l10n.notificationsOffMessage),
           actions: [
-            TextButton(onPressed: navigator.pop, child: const Text('Not now')),
+            TextButton(onPressed: navigator.pop, child: Text(l10n.notNow)),
             FilledButton(
               onPressed: () {
                 navigator.pop();
@@ -279,7 +276,7 @@ class _TodoScreenState extends State<TodoScreen> {
                   NotificationService.instance.openNotificationSettings(),
                 );
               },
-              child: const Text('Open settings'),
+              child: Text(l10n.openSettings),
             ),
           ],
         );
@@ -309,7 +306,7 @@ class _TodoScreenState extends State<TodoScreen> {
   Future<void> _generateAiPlan() async {
     if (_activeTodos.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Create task tags before asking AI.')),
+        SnackBar(content: Text(context.l10n.createTaskTagsBeforeAi)),
       );
       return;
     }
@@ -335,9 +332,9 @@ class _TodoScreenState extends State<TodoScreen> {
       if (!mounted) {
         return;
       }
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(error.message)));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(context.l10n.localizeError(error.message))),
+      );
     } finally {
       if (mounted) {
         setState(() {
@@ -371,12 +368,12 @@ ${_archivedTodos.isEmpty ? '- 无' : _archivedTodos.map(itemLine).join('\n')}
     final hours = totalMinutes ~/ 60;
     final minutes = totalMinutes % 60;
     if (hours == 0) {
-      return '$minutes min';
+      return context.l10n.minutesShort(minutes);
     }
     if (minutes == 0) {
-      return '$hours hr';
+      return context.l10n.hoursShort(hours);
     }
-    return '$hours hr $minutes min';
+    return context.l10n.hoursMinutesShort(hours, minutes);
   }
 
   Widget _buildAiPlanPanel() {
@@ -396,7 +393,7 @@ ${_archivedTodos.isEmpty ? '- 无' : _archivedTodos.map(itemLine).join('\n')}
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    'AI planning',
+                    context.l10n.aiPlanning,
                     style: Theme.of(context).textTheme.titleMedium?.copyWith(
                       fontWeight: FontWeight.w700,
                     ),
@@ -411,14 +408,18 @@ ${_archivedTodos.isEmpty ? '- 无' : _archivedTodos.map(itemLine).join('\n')}
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
                       : const Icon(Icons.route_outlined),
-                  label: Text(_isAiLoading ? 'Planning' : 'Recommend'),
+                  label: Text(
+                    _isAiLoading
+                        ? context.l10n.planning
+                        : context.l10n.recommend,
+                  ),
                 ),
               ],
             ),
             const SizedBox(height: 10),
             if (_aiPlan == null)
               Text(
-                'Generate a plan from your active tags, tracked counts, and accumulated time.',
+                context.l10n.aiPlanningBody,
                 style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                   color: AppTheme.muted,
                   height: 1.5,
@@ -437,6 +438,7 @@ ${_archivedTodos.isEmpty ? '- 无' : _archivedTodos.map(itemLine).join('\n')}
     if (_isLoading) {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
+    final l10n = context.l10n;
 
     return Scaffold(
       body: SafeArea(
@@ -451,18 +453,17 @@ ${_archivedTodos.isEmpty ? '- 无' : _archivedTodos.map(itemLine).join('\n')}
           header: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const PageIntro(
-                eyebrow: 'Operating tags',
-                title: 'Tasks',
-                description:
-                    'Shape the categories you track, then reorder them as your work changes.',
+              PageIntro(
+                eyebrow: l10n.tasksEyebrow,
+                title: l10n.tasksTitle,
+                description: l10n.tasksDescription,
               ),
               const SizedBox(height: 18),
               Row(
                 children: [
                   Expanded(
                     child: MetricTile(
-                      label: 'Active',
+                      label: l10n.active,
                       value: '${_activeTodos.length}',
                       icon: Icons.layers_outlined,
                       accent: AppTheme.primary,
@@ -471,7 +472,7 @@ ${_archivedTodos.isEmpty ? '- 无' : _archivedTodos.map(itemLine).join('\n')}
                   const SizedBox(width: 10),
                   Expanded(
                     child: MetricTile(
-                      label: 'Archived',
+                      label: l10n.archived,
                       value: '${_archivedTodos.length}',
                       icon: Icons.inventory_2_outlined,
                       accent: AppTheme.copper,
@@ -492,16 +493,16 @@ ${_archivedTodos.isEmpty ? '- 无' : _archivedTodos.map(itemLine).join('\n')}
                 collapsedIconColor: AppTheme.muted,
                 iconColor: AppTheme.primary,
                 title: Text(
-                  'Archived (${_archivedTodos.length})',
+                  '${l10n.archived} (${_archivedTodos.length})',
                   style: const TextStyle(fontWeight: FontWeight.w700),
                 ),
                 children: _archivedTodos.isEmpty
-                    ? const [
+                    ? [
                         Padding(
-                          padding: EdgeInsets.only(bottom: 12),
+                          padding: const EdgeInsets.only(bottom: 12),
                           child: Align(
                             alignment: Alignment.centerLeft,
-                            child: Text('No archived task tags'),
+                            child: Text(l10n.noArchivedTaskTags),
                           ),
                         ),
                       ]
@@ -517,14 +518,14 @@ ${_archivedTodos.isEmpty ? '- 无' : _archivedTodos.map(itemLine).join('\n')}
             ],
           ),
           children: _activeTodos.isEmpty
-              ? const [
+              ? [
                   Padding(
-                    key: ValueKey('empty-task-card'),
-                    padding: EdgeInsets.only(bottom: 10),
+                    key: const ValueKey('empty-task-card'),
+                    padding: const EdgeInsets.only(bottom: 10),
                     child: EmptyState(
                       icon: Icons.checklist_outlined,
-                      title: 'No task tags',
-                      message: 'Create a tag to connect future entries.',
+                      title: l10n.noTaskTagsTitle,
+                      message: l10n.noTaskTagsMessage,
                     ),
                   ),
                 ]
@@ -541,7 +542,7 @@ ${_archivedTodos.isEmpty ? '- 无' : _archivedTodos.map(itemLine).join('\n')}
       floatingActionButtonAnimator: FloatingActionButtonAnimator.scaling,
       floatingActionButton: FloatingActionButton(
         onPressed: _showCreateTodoDialog,
-        tooltip: 'Create task tag',
+        tooltip: l10n.createTaskTag,
         child: const Icon(Icons.add),
       ),
     );
@@ -592,7 +593,10 @@ ${_archivedTodos.isEmpty ? '- 无' : _archivedTodos.map(itemLine).join('\n')}
                           ),
                         ),
                         if (item.isSystem)
-                          AppChip(label: 'Default', color: item.color),
+                          AppChip(
+                            label: context.l10n.defaultLabel,
+                            color: item.color,
+                          ),
                       ],
                     ),
                     const SizedBox(height: 7),
@@ -609,20 +613,20 @@ ${_archivedTodos.isEmpty ? '- 无' : _archivedTodos.map(itemLine).join('\n')}
                       children: [
                         if (!archived)
                           QuietIconButton(
-                            tooltip: 'Send reminder',
+                            tooltip: context.l10n.sendReminder,
                             onPressed: () => _sendReminder(item),
                             icon: Icons.alarm_add_outlined,
                             color: AppTheme.steel,
                           ),
                         if (!archived && !item.isSystem)
                           QuietIconButton(
-                            tooltip: 'Rename',
+                            tooltip: context.l10n.rename,
                             onPressed: () => _showEditTodoDialog(item),
                             icon: Icons.edit_outlined,
                             color: AppTheme.primary,
                           ),
                         QuietIconButton(
-                          tooltip: 'Change color',
+                          tooltip: context.l10n.changeColorTooltip,
                           onPressed: archived
                               ? null
                               : () => _showColorDialog(item),
@@ -631,14 +635,14 @@ ${_archivedTodos.isEmpty ? '- 无' : _archivedTodos.map(itemLine).join('\n')}
                         ),
                         if (archived)
                           QuietIconButton(
-                            tooltip: 'Restore',
+                            tooltip: context.l10n.restore,
                             onPressed: () => _restoreTodo(item),
                             icon: Icons.unarchive_outlined,
                             color: AppTheme.primary,
                           )
                         else if (!item.isSystem)
                           QuietIconButton(
-                            tooltip: 'Archive',
+                            tooltip: context.l10n.archive,
                             onPressed: () => _archiveTodo(item),
                             icon: Icons.archive_outlined,
                             color: AppTheme.muted,

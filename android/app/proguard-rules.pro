@@ -18,3 +18,9 @@
 -dontwarn com.google.android.play.core.tasks.OnFailureListener
 -dontwarn com.google.android.play.core.tasks.OnSuccessListener
 -dontwarn com.google.android.play.core.tasks.Task
+
+# RecordMyTime only enables Chinese/Latin OCR by default and optionally Japanese.
+# The ML Kit Flutter plugin references every script class, so silence R8 for
+# unused OCR model packages that are not bundled.
+-dontwarn com.google.mlkit.vision.text.devanagari.**
+-dontwarn com.google.mlkit.vision.text.korean.**

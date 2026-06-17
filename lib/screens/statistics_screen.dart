@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import '../models/time_event.dart';
 import '../theme/app_theme.dart';
 import '../utils/ai_service.dart';
+import '../utils/app_localizations.dart';
 import '../utils/todo_persistence.dart';
 import '../widgets/app_components.dart';
 
@@ -127,13 +128,13 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
   String _tagForEvent(TimeEvent event) {
     switch (event.linkedTodoId) {
       case 'system-work':
-        return 'Work';
+        return context.l10n.work;
       case 'system-study':
-        return 'Study';
+        return context.l10n.study;
       case 'system-play':
-        return 'Leisure';
+        return context.l10n.leisure;
       default:
-        return event.linkedTodoTitle ?? 'No tag';
+        return event.linkedTodoTitle ?? context.l10n.noTag;
     }
   }
 
@@ -152,19 +153,19 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
     final hours = totalMinutes ~/ 60;
     final minutes = totalMinutes % 60;
     if (hours == 0) {
-      return '$minutes min';
+      return context.l10n.minutesShort(minutes);
     }
     if (minutes == 0) {
-      return '$hours hr';
+      return context.l10n.hoursShort(hours);
     }
-    return '$hours hr $minutes min';
+    return context.l10n.hoursMinutesShort(hours, minutes);
   }
 
   Future<void> _generateAiInsight() async {
     if (_filteredEvents.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Add entries first, then ask AI.')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(context.l10n.addEntriesBeforeAi)));
       return;
     }
 
@@ -189,9 +190,9 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
       if (!mounted) {
         return;
       }
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(error.message)));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(context.l10n.localizeError(error.message))),
+      );
     } finally {
       if (mounted) {
         setState(() {
@@ -251,7 +252,7 @@ $eventLines
       children: [
         Expanded(
           child: MetricTile(
-            label: 'Entries',
+            label: context.l10n.entriesMetric,
             value: '${_filteredEvents.length}',
             icon: Icons.numbers,
             accent: AppTheme.primary,
@@ -260,7 +261,7 @@ $eventLines
         const SizedBox(width: 10),
         Expanded(
           child: MetricTile(
-            label: 'Tracked time',
+            label: context.l10n.trackedTime,
             value: _formatDuration(_totalMinutes),
             icon: Icons.timelapse,
             accent: AppTheme.steel,
@@ -289,10 +290,10 @@ $eventLines
     );
 
     if (entries.isEmpty) {
-      return const EmptyState(
+      return EmptyState(
         icon: Icons.pie_chart_outline,
-        title: 'No chartable data',
-        message: 'Add entries inside this range to see tag share.',
+        title: context.l10n.noChartDataTitle,
+        message: context.l10n.noChartDataMessage,
       );
     }
 
@@ -315,9 +316,9 @@ $eventLines
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text(
-                'Tag share',
-                style: TextStyle(
+              Text(
+                context.l10n.tagShare,
+                style: const TextStyle(
                   fontSize: 20,
                   fontWeight: FontWeight.w700,
                   color: AppTheme.ink,
@@ -385,7 +386,11 @@ $eventLines
                     borderRadius: BorderRadius.circular(AppTheme.radiusCard),
                   ),
                   child: Text(
-                    '${touchedEntry.label}: ${touchedEntry.count} times, ${_formatDuration(touchedEntry.minutes)}',
+                    context.l10n.tagStatLine(
+                      touchedEntry.label,
+                      touchedEntry.count,
+                      _formatDuration(touchedEntry.minutes),
+                    ),
                     style: const TextStyle(
                       fontSize: 15,
                       fontWeight: FontWeight.w700,
@@ -401,10 +406,10 @@ $eventLines
 
   Widget _buildTimeline() {
     if (_filteredEvents.isEmpty) {
-      return const EmptyState(
+      return EmptyState(
         icon: Icons.timeline_outlined,
-        title: 'No timeline yet',
-        message: 'The timeline appears after entries are added to this range.',
+        title: context.l10n.noTimelineTitle,
+        message: context.l10n.noTimelineMessage,
       );
     }
 
@@ -416,8 +421,8 @@ $eventLines
           children: [
             Text(
               _viewMode == StatisticsViewMode.day
-                  ? 'Daily timeline'
-                  : 'Weekly timeline',
+                  ? context.l10n.dailyTimeline
+                  : context.l10n.weeklyTimeline,
               style: const TextStyle(
                 fontSize: 20,
                 fontWeight: FontWeight.w700,
@@ -465,7 +470,7 @@ $eventLines
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    'AI schedule insight',
+                    context.l10n.aiScheduleInsight,
                     style: Theme.of(context).textTheme.titleMedium?.copyWith(
                       fontWeight: FontWeight.w700,
                     ),
@@ -480,14 +485,16 @@ $eventLines
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
                       : const Icon(Icons.psychology_outlined),
-                  label: Text(_isAiLoading ? 'Thinking' : 'Analyze'),
+                  label: Text(
+                    _isAiLoading ? context.l10n.thinking : context.l10n.analyze,
+                  ),
                 ),
               ],
             ),
             const SizedBox(height: 10),
             if (_aiInsight == null)
               Text(
-                'Use your selected range to generate a practical schedule review and next-step plan.',
+                context.l10n.aiInsightBody,
                 style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                   color: AppTheme.muted,
                   height: 1.5,
@@ -504,8 +511,11 @@ $eventLines
   @override
   Widget build(BuildContext context) {
     final rangeLabel = _viewMode == StatisticsViewMode.day
-        ? 'Date ${_formatDate(_selectedDate)}'
-        : 'Week ${_formatDate(_startOfSelectedWeek)} - ${_formatDate(_startOfSelectedWeek.add(const Duration(days: 6)))}';
+        ? context.l10n.dateRangeDay(_formatDate(_selectedDate))
+        : context.l10n.dateRangeWeek(
+            _formatDate(_startOfSelectedWeek),
+            _formatDate(_startOfSelectedWeek.add(const Duration(days: 6))),
+          );
 
     return Scaffold(
       body: SafeArea(
@@ -517,27 +527,27 @@ $eventLines
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 PageIntro(
-                  eyebrow: 'Analytics',
-                  title: 'Insights',
+                  eyebrow: context.l10n.insightsEyebrow,
+                  title: context.l10n.insightsTitle,
                   description: rangeLabel,
                   trailing: QuietIconButton(
                     onPressed: _pickDate,
                     icon: Icons.calendar_month,
-                    tooltip: 'Choose date',
+                    tooltip: context.l10n.chooseDate,
                   ),
                 ),
                 const SizedBox(height: 16),
                 SegmentedButton<StatisticsViewMode>(
-                  segments: const [
+                  segments: [
                     ButtonSegment(
                       value: StatisticsViewMode.day,
-                      label: Text('Day'),
-                      icon: Icon(Icons.today),
+                      label: Text(context.l10n.day),
+                      icon: const Icon(Icons.today),
                     ),
                     ButtonSegment(
                       value: StatisticsViewMode.week,
-                      label: Text('Week'),
-                      icon: Icon(Icons.view_week),
+                      label: Text(context.l10n.week),
+                      icon: const Icon(Icons.view_week),
                     ),
                   ],
                   selected: {_viewMode},

@@ -6,6 +6,7 @@ import 'package:flutter_quill/flutter_quill.dart';
 import '../models/note_item.dart';
 import '../theme/app_theme.dart';
 import '../utils/ai_service.dart';
+import '../utils/app_localizations.dart';
 import '../utils/note_persistence.dart';
 import '../widgets/app_components.dart';
 
@@ -136,7 +137,7 @@ class _NoteEditorScreenState extends State<NoteEditorScreen> {
               final content = _quillController.document.toPlainText().trim();
               if (content.isEmpty && _titleController.text.trim().isEmpty) {
                 ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Write something first.')),
+                  SnackBar(content: Text(context.l10n.writeSomethingFirst)),
                 );
                 return;
               }
@@ -171,9 +172,13 @@ $content
                 if (!mounted) {
                   return;
                 }
-                ScaffoldMessenger.of(
-                  this.context,
-                ).showSnackBar(SnackBar(content: Text(error.message)));
+                ScaffoldMessenger.of(this.context).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      this.context.l10n.localizeError(error.message),
+                    ),
+                  ),
+                );
               } finally {
                 if (mounted) {
                   setSheetState(() {
@@ -204,7 +209,7 @@ $content
                         const SizedBox(width: 8),
                         Expanded(
                           child: Text(
-                            'AI writing',
+                            context.l10n.aiWriting,
                             style: Theme.of(context).textTheme.titleLarge
                                 ?.copyWith(fontWeight: FontWeight.w700),
                           ),
@@ -218,14 +223,14 @@ $content
                       children: [
                         ActionChip(
                           avatar: const Icon(Icons.edit_outlined, size: 18),
-                          label: const Text('Polish'),
+                          label: Text(context.l10n.polish),
                           onPressed: _isAiLoading
                               ? null
                               : () => runAi('请润色这篇笔记，使表达更清晰、有层次，但保留原意。'),
                         ),
                         ActionChip(
                           avatar: const Icon(Icons.notes_outlined, size: 18),
-                          label: const Text('Continue'),
+                          label: Text(context.l10n.continueWriting),
                           onPressed: _isAiLoading
                               ? null
                               : () => runAi('请基于已有内容自然续写 2-4 段。'),
@@ -235,7 +240,7 @@ $content
                             Icons.account_tree_outlined,
                             size: 18,
                           ),
-                          label: const Text('Outline'),
+                          label: Text(context.l10n.outline),
                           onPressed: _isAiLoading
                               ? null
                               : () => runAi('请把这篇笔记整理成结构化提纲，并补充可继续展开的问题。'),
@@ -247,8 +252,8 @@ $content
                       controller: instructionController,
                       minLines: 2,
                       maxLines: 4,
-                      decoration: const InputDecoration(
-                        labelText: 'Custom instruction',
+                      decoration: InputDecoration(
+                        labelText: context.l10n.customInstruction,
                       ),
                     ),
                     const SizedBox(height: 12),
@@ -267,7 +272,11 @@ $content
                                 ),
                               )
                             : const Icon(Icons.psychology_outlined),
-                        label: Text(_isAiLoading ? 'Writing...' : 'Generate'),
+                        label: Text(
+                          _isAiLoading
+                              ? context.l10n.writing
+                              : context.l10n.generate,
+                        ),
                       ),
                     ),
                     if (aiResult != null) ...[
@@ -293,7 +302,7 @@ $content
                             Navigator.of(sheetContext).pop();
                           },
                           icon: const Icon(Icons.add),
-                          label: const Text('Insert into note'),
+                          label: Text(context.l10n.insertIntoNote),
                         ),
                       ),
                     ],
@@ -423,14 +432,18 @@ $content
             onPressed: _handleBackNavigation,
             icon: const Icon(Icons.arrow_back),
           ),
-          title: Text(widget.initialNote == null ? 'New note' : 'Edit note'),
+          title: Text(
+            widget.initialNote == null
+                ? context.l10n.newNote
+                : context.l10n.editNote,
+          ),
           actions: [
             IconButton(
-              tooltip: 'AI writing',
+              tooltip: context.l10n.aiWriting,
               onPressed: _showAiWritingSheet,
               icon: const Icon(Icons.auto_awesome_outlined),
             ),
-            TextButton(onPressed: _saveNote, child: const Text('Save')),
+            TextButton(onPressed: _saveNote, child: Text(context.l10n.save)),
           ],
         ),
         backgroundColor: AppTheme.background,
@@ -448,7 +461,7 @@ $content
                     fontWeight: FontWeight.w800,
                     color: AppTheme.ink,
                   ),
-                  decoration: const InputDecoration(labelText: 'Title'),
+                  decoration: InputDecoration(labelText: context.l10n.title),
                 ),
               ),
               _buildEditorToolbar(),
@@ -459,7 +472,10 @@ $content
                   focusNode: _editorFocusNode,
                   scrollController: _editorScrollController,
                   config: QuillEditorConfig(
-                    placeholder: 'Start shaping the thought...',
+                    placeholder: context.l10n.ui(
+                      '开始整理这个想法...',
+                      'Start shaping the thought...',
+                    ),
                     padding: const EdgeInsets.fromLTRB(18, 18, 18, 28),
                     customStyles: _editorStyles(context),
                   ),
