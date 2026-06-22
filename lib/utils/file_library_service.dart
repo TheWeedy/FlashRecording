@@ -28,6 +28,8 @@ class FileLibraryException implements Exception {
 }
 
 class FileLibraryService {
+  bool get _supportsImageOcr => Platform.isAndroid || Platform.isIOS;
+
   Future<List<FileItem>> loadItems({
     String query = '',
     String? tagId,
@@ -292,10 +294,20 @@ class FileLibraryService {
       );
     }
     if (kind == FileItemKind.image) {
-      return _addCopiedImage(
+      final originalName = p.basename(sourcePath);
+      if (_supportsImageOcr) {
+        return _addCopiedImage(
+          id: id,
+          copied: copied,
+          originalName: originalName,
+          mimeType: detectedMime,
+          createdAt: now,
+        );
+      }
+      return _addCopiedImageWithoutOcr(
         id: id,
         copied: copied,
-        originalName: p.basename(sourcePath),
+        originalName: originalName,
         mimeType: detectedMime,
         createdAt: now,
       );
@@ -347,6 +359,31 @@ class FileLibraryService {
       localPath: copied.path,
       markdownPath: markdownFile.path,
       plainTextPreview: _preview(extracted.plainText),
+      sizeBytes: await copied.length(),
+      createdAt: createdAt,
+      updatedAt: createdAt,
+      tags: const [],
+    );
+    await _upsertItem(item);
+    return item;
+  }
+
+  Future<FileItem> _addCopiedImageWithoutOcr({
+    required String id,
+    required File copied,
+    required String originalName,
+    required String mimeType,
+    required DateTime createdAt,
+  }) async {
+    final item = FileItem(
+      id: id,
+      title: originalName,
+      kind: FileItemKind.image,
+      mimeType: mimeType,
+      originalUrl: '',
+      localPath: copied.path,
+      markdownPath: '',
+      plainTextPreview: '${FileItemKind.image.label} file',
       sizeBytes: await copied.length(),
       createdAt: createdAt,
       updatedAt: createdAt,
@@ -440,6 +477,11 @@ $body
     FileItem item, {
     ImageOcrLanguageMode languageMode = ImageOcrLanguageMode.chineseEnglish,
   }) async {
+    if (!_supportsImageOcr) {
+      throw const FileLibraryException(
+        'Image OCR is not available on this platform.',
+      );
+    }
     if (item.kind != FileItemKind.image || item.localPath.isEmpty) {
       throw const FileLibraryException('This item is not an image.');
     }

@@ -94,6 +94,8 @@ class _FileDetailScreenState extends State<FileDetailScreen> {
   ImageOcrLanguageMode _ocrLanguageMode = ImageOcrLanguageMode.chineseEnglish;
   InAppWebViewController? _webController;
 
+  bool get _supportsImageOcr => Platform.isAndroid || Platform.isIOS;
+
   @override
   void initState() {
     super.initState();
@@ -529,6 +531,10 @@ class _FileDetailScreenState extends State<FileDetailScreen> {
   }
 
   Widget _buildImageBody() {
+    final canShowOcrText = _supportsImageOcr || _item.markdownPath.isNotEmpty;
+    if (!canShowOcrText) {
+      return _buildImagePreview();
+    }
     return Column(
       children: [
         _buildModeSwitch<_ImageViewMode>(
@@ -553,8 +559,10 @@ class _FileDetailScreenState extends State<FileDetailScreen> {
         ),
         const SizedBox(height: 14),
         if (_imageMode == _ImageViewMode.ocr) ...[
-          _buildOcrRefreshActions(),
-          const SizedBox(height: 14),
+          if (_supportsImageOcr) ...[
+            _buildOcrRefreshActions(),
+            const SizedBox(height: 14),
+          ],
           _buildTextBody(),
         ] else
           _buildImagePreview(),
@@ -696,7 +704,7 @@ class _FileDetailScreenState extends State<FileDetailScreen> {
   }
 
   Future<void> _refreshImageOcr() async {
-    if (_isRefreshingOcr) {
+    if (_isRefreshingOcr || !_supportsImageOcr) {
       return;
     }
     setState(() {

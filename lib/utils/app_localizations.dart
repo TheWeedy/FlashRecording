@@ -570,6 +570,7 @@ class AppLocalizations {
       'This item is not a webpage.': '这个项目不是网页。',
       'This item is not an image.': '这个项目不是图片。',
       'The stored image file is missing.': '已保存的图片文件不存在。',
+      'Image OCR is not available on this platform.': '当前平台暂不支持图片 OCR。',
       'File name cannot be empty.': '文件名不能为空。',
       'Tag name cannot be empty.': '标签名不能为空。',
       'A tag with this name already exists.': '同名标签已存在。',
@@ -590,6 +591,8 @@ class AppLocalizations {
       'This item is not a webpage.': 'この項目は Web ページではありません。',
       'This item is not an image.': 'この項目は画像ではありません。',
       'The stored image file is missing.': '保存済み画像ファイルが見つかりません。',
+      'Image OCR is not available on this platform.':
+          'このプラットフォームでは画像 OCR を利用できません。',
       'File name cannot be empty.': 'ファイル名は空にできません。',
       'Tag name cannot be empty.': 'タグ名は空にできません。',
       'A tag with this name already exists.': '同じ名前のタグがすでに存在します。',

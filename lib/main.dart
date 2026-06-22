@@ -27,7 +27,7 @@ const _welcomeSeenKey = 'welcome_seen_v3';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  if (Platform.isWindows || Platform.isLinux) {
+  if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
     sqfliteFfiInit();
     databaseFactory = databaseFactoryFfi;
   }
@@ -221,9 +221,6 @@ class _MyHomePageState extends State<MyHomePage> {
   }
 
   void _navigateToFilesTab() {
-    if (Platform.isMacOS) {
-      return;
-    }
     const filesIndex = 4;
     if (_currentIndex == filesIndex) {
       return;
@@ -331,7 +328,6 @@ class _MyHomePageState extends State<MyHomePage> {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
-    final filesEnabled = !Platform.isMacOS;
     final l10n = context.l10n;
     final screens = [
       EventListScreen(
@@ -345,7 +341,7 @@ class _MyHomePageState extends State<MyHomePage> {
       StatisticsScreen(events: _events),
       const NoteListScreen(),
       const TodoScreen(),
-      if (filesEnabled) FilesScreen(key: _filesKey),
+      FilesScreen(key: _filesKey),
     ];
 
     final navItems = [
@@ -369,12 +365,11 @@ class _MyHomePageState extends State<MyHomePage> {
         selectedIcon: const Icon(Icons.checklist),
         label: Text(l10n.navTasks),
       ),
-      if (filesEnabled)
-        NavigationRailDestination(
-          icon: const Icon(Icons.folder_copy_outlined),
-          selectedIcon: const Icon(Icons.folder_copy),
-          label: Text(l10n.navFiles),
-        ),
+      NavigationRailDestination(
+        icon: const Icon(Icons.folder_copy_outlined),
+        selectedIcon: const Icon(Icons.folder_copy),
+        label: Text(l10n.navFiles),
+      ),
     ];
 
     return PopScope(
@@ -489,12 +484,11 @@ class _MyHomePageState extends State<MyHomePage> {
                         activeIcon: const Icon(Icons.checklist),
                         label: l10n.navTasks,
                       ),
-                      if (filesEnabled)
-                        BottomNavigationBarItem(
-                          icon: const Icon(Icons.folder_copy_outlined),
-                          activeIcon: const Icon(Icons.folder_copy),
-                          label: l10n.navFiles,
-                        ),
+                      BottomNavigationBarItem(
+                        icon: const Icon(Icons.folder_copy_outlined),
+                        activeIcon: const Icon(Icons.folder_copy),
+                        label: l10n.navFiles,
+                      ),
                     ],
                   ),
                 ),
