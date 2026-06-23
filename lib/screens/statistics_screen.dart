@@ -6,9 +6,11 @@ import 'package:flutter/material.dart';
 
 import '../models/time_event.dart';
 import '../theme/app_theme.dart';
+import '../utils/ai_generation_helper.dart';
 import '../utils/ai_service.dart';
 import '../utils/app_localizations.dart';
-import '../utils/todo_persistence.dart';
+import '../utils/event_lookups.dart';
+import '../utils/format_utils.dart' as fmt;
 import '../widgets/app_components.dart';
 import '../widgets/responsive_scaffold.dart';
 
@@ -31,12 +33,16 @@ class StatisticsScreen extends StatefulWidget {
 class _StatisticsScreenState extends State<StatisticsScreen> {
   static const double _hourRowHeight = 52;
 
-  final TodoPersistenceService _todoService = TodoPersistenceService();
   final AiService _aiService = AiService();
   late DateTime _selectedDate;
   StatisticsViewMode _viewMode = StatisticsViewMode.day;
   int _touchedPieIndex = -1;
-  Map<String, Color> _todoColorMap = {};
+  EventLookups _lookups = EventLookups(const {});
+  _StatisticsSnapshot? _statsCache;
+  List<TimeEvent>? _statsEventsSource;
+  StatisticsViewMode? _statsViewMode;
+  DateTime? _statsSelectedDate;
+  EventLookups? _statsLookupsSource;
   bool _isAiLoading = false;
   String? _aiInsight;
 
@@ -57,13 +63,19 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
     }
   }
 
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _clearStatsCache();
+  }
+
   Future<void> _loadTodoColors() async {
-    final colorMap = await _todoService.loadTodoColorMap();
+    final lookups = await EventLookups.load();
     if (!mounted) {
       return;
     }
     setState(() {
-      _todoColorMap = colorMap;
+      _lookups = lookups;
     });
   }
 
@@ -89,7 +101,46 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
     _selectedDate,
   ).subtract(Duration(days: _selectedDate.weekday - 1));
 
-  List<TimeEvent> get _filteredEvents {
+  _StatisticsSnapshot get _stats {
+    final cache = _statsCache;
+    if (cache != null &&
+        identical(_statsEventsSource, widget.events) &&
+        _statsViewMode == _viewMode &&
+        _statsSelectedDate == _selectedDate &&
+        identical(_statsLookupsSource, _lookups)) {
+      return cache;
+    }
+
+    final events = _computeFilteredEvents();
+    final tagStats = _computeTagStats(events);
+    final snapshot = _StatisticsSnapshot(
+      events: events,
+      tagStats: tagStats,
+      totalMinutes: events.fold(0, (sum, event) => sum + event.totalMinutes),
+    );
+    _statsCache = snapshot;
+    _statsEventsSource = widget.events;
+    _statsViewMode = _viewMode;
+    _statsSelectedDate = _selectedDate;
+    _statsLookupsSource = _lookups;
+    return snapshot;
+  }
+
+  List<TimeEvent> get _filteredEvents => _stats.events;
+
+  Map<String, _TagStats> get _tagStats => _stats.tagStats;
+
+  int get _totalMinutes => _stats.totalMinutes;
+
+  void _clearStatsCache() {
+    _statsCache = null;
+    _statsEventsSource = null;
+    _statsViewMode = null;
+    _statsSelectedDate = null;
+    _statsLookupsSource = null;
+  }
+
+  List<TimeEvent> _computeFilteredEvents() {
     if (_viewMode == StatisticsViewMode.day) {
       final day = _dateOnly(_selectedDate);
       return widget.events
@@ -106,9 +157,9 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
     }).toList()..sort((a, b) => a.addedAt.compareTo(b.addedAt));
   }
 
-  Map<String, _TagStats> get _tagStats {
+  Map<String, _TagStats> _computeTagStats(List<TimeEvent> events) {
     final stats = <String, _TagStats>{};
-    for (final event in _filteredEvents) {
+    for (final event in events) {
       final label = _tagForEvent(event);
       final current = stats[label];
       stats[label] = _TagStats(
@@ -121,30 +172,18 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
     return stats;
   }
 
-  int get _totalMinutes =>
-      _filteredEvents.fold(0, (sum, event) => sum + event.totalMinutes);
-
   Color _colorForEvent(TimeEvent event) {
-    return _todoColorMap[event.linkedTodoId] ??
-        switch (event.linkedTodoId) {
-          'system-work' => AppTheme.steel,
-          'system-study' => AppTheme.success,
-          'system-play' => AppTheme.copper,
-          _ => AppTheme.primary,
-        };
+    return _lookups.colorForEvent(event);
   }
 
   String _tagForEvent(TimeEvent event) {
-    switch (event.linkedTodoId) {
-      case 'system-work':
-        return context.l10n.work;
-      case 'system-study':
-        return context.l10n.study;
-      case 'system-play':
-        return context.l10n.leisure;
-      default:
-        return event.linkedTodoTitle ?? context.l10n.noTag;
-    }
+    return _lookups.tagForEvent(event, (key) => switch (key) {
+      'work' => context.l10n.work,
+      'study' => context.l10n.study,
+      'leisure' => context.l10n.leisure,
+      'noTag' => context.l10n.noTag,
+      _ => key,
+    });
   }
 
   DateTime _dateOnly(DateTime value) =>
@@ -154,9 +193,7 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
     return a.year == b.year && a.month == b.month && a.day == b.day;
   }
 
-  String _formatDate(DateTime date) {
-    return '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
-  }
+  String _formatDate(DateTime date) => fmt.formatDate(date);
 
   String _formatDuration(int totalMinutes) {
     final hours = totalMinutes ~/ 60;
@@ -170,11 +207,8 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
     return context.l10n.hoursMinutesShort(hours, minutes);
   }
 
-  String _formatCompactDuration(int totalMinutes) {
-    final hours = totalMinutes ~/ 60;
-    final minutes = totalMinutes % 60;
-    return '$hours:${minutes.toString().padLeft(2, '0')}';
-  }
+  String _formatCompactDuration(int totalMinutes) =>
+      fmt.formatCompactDuration(totalMinutes);
 
   Future<void> _generateAiInsight() async {
     if (_filteredEvents.isEmpty) {
@@ -189,31 +223,25 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
       _aiInsight = null;
     });
 
-    try {
-      final result = await _aiService.complete(
-        systemPrompt:
-            'You are an insightful time management coach. Respond in concise, practical Chinese. Use markdown bullets.',
-        userPrompt: _buildInsightPrompt(),
-      );
-      if (!mounted) {
-        return;
-      }
+    final result = await AiGenerationHelper.generate(
+      context: context,
+      aiService: _aiService,
+      systemPrompt:
+          'You are an insightful time management coach. Respond in concise, practical Chinese. Use markdown bullets.',
+      userPrompt: _buildInsightPrompt(),
+      setLoading: (loading) {
+        if (mounted) {
+          setState(() {
+            _isAiLoading = loading;
+          });
+        }
+      },
+      mounted: mounted,
+    );
+    if (result != null && mounted) {
       setState(() {
         _aiInsight = result;
       });
-    } on AiServiceException catch (error) {
-      if (!mounted) {
-        return;
-      }
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(context.l10n.localizeError(error.message))),
-      );
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isAiLoading = false;
-        });
-      }
     }
   }
 
@@ -812,6 +840,18 @@ $eventLines
       ),
     );
   }
+}
+
+class _StatisticsSnapshot {
+  const _StatisticsSnapshot({
+    required this.events,
+    required this.tagStats,
+    required this.totalMinutes,
+  });
+
+  final List<TimeEvent> events;
+  final Map<String, _TagStats> tagStats;
+  final int totalMinutes;
 }
 
 class _TagStats {

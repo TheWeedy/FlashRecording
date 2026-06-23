@@ -13,11 +13,11 @@ import 'package:reader_mode/reader_mode.dart' as reader_mode;
 import 'package:sqflite/sqflite.dart';
 import 'package:syncfusion_flutter_pdf/pdf.dart';
 
-import '../models/file_item.dart';
-import 'ai_service.dart';
-import 'cloud_sync_service.dart';
-import 'deleted_record_service.dart';
-import 'local_database.dart';
+import '../../../models/file_item.dart';
+import '../../../utils/ai_service.dart';
+import '../../../utils/cloud_sync_service.dart';
+import '../../../utils/deleted_record_service.dart';
+import '../../../utils/local_database.dart';
 
 enum ImageOcrLanguageMode { chineseEnglish, japaneseEnglish, englishOnly }
 
@@ -57,9 +57,14 @@ class FileLibraryService {
       where: archived ? 'archived_at IS NOT NULL' : 'archived_at IS NULL',
       orderBy: 'updated_at DESC',
     );
+    final tagsByItemId = await _loadTagsByItemId(
+      db,
+      rows.map((row) => row['id'] as String),
+    );
     final all = <FileItem>[];
     for (final row in rows) {
-      final item = await _mapItem(row);
+      final itemId = row['id'] as String;
+      final item = _mapItem(row, tagsByItemId[itemId] ?? const []);
       if (tagId != null && !item.tags.any((tag) => tag.id == tagId)) {
         continue;
       }
@@ -91,7 +96,8 @@ class FileLibraryService {
     if (rows.isEmpty) {
       return null;
     }
-    return _mapItem(rows.first);
+    final tagsByItemId = await _loadTagsByItemId(db, [id]);
+    return _mapItem(rows.first, tagsByItemId[id] ?? const []);
   }
 
   Future<List<FileItem>> loadAiTitlePendingItems() async {
@@ -102,11 +108,14 @@ class FileLibraryService {
           'archived_at IS NULL AND (ai_title_generated_at IS NULL OR updated_at > ai_title_generated_at)',
       orderBy: 'updated_at DESC',
     );
-    final items = <FileItem>[];
-    for (final row in rows) {
-      items.add(await _mapItem(row));
-    }
-    return items;
+    final tagsByItemId = await _loadTagsByItemId(
+      db,
+      rows.map((row) => row['id'] as String),
+    );
+    return rows.map((row) {
+      final itemId = row['id'] as String;
+      return _mapItem(row, tagsByItemId[itemId] ?? const []);
+    }).toList();
   }
 
   Future<FileTitleBatchResult> generateAiTitlesForPendingFiles() async {
@@ -1120,18 +1129,33 @@ $body
     );
   }
 
-  Future<FileItem> _mapItem(Map<String, Object?> row) async {
-    final db = await LocalDatabase.instance.database;
-    final tagRows = await db.rawQuery(
-      '''
-      SELECT t.id, t.name, t.created_at
+  Future<Map<String, List<FileTag>>> _loadTagsByItemId(
+    DatabaseExecutor db,
+    Iterable<String> itemIds,
+  ) async {
+    final ids = itemIds.toSet().toList(growable: false);
+    if (ids.isEmpty) {
+      return const {};
+    }
+    final placeholders = List.filled(ids.length, '?').join(', ');
+    final tagRows = await db.rawQuery('''
+      SELECT it.file_item_id, t.id, t.name, t.created_at, t.sort_order
       FROM file_tags t
       INNER JOIN file_item_tags it ON it.tag_id = t.id
-      WHERE it.file_item_id = ?
-      ORDER BY t.sort_order ASC, t.name COLLATE NOCASE ASC
-      ''',
-      [row['id']],
-    );
+      WHERE it.file_item_id IN ($placeholders)
+      ORDER BY it.file_item_id ASC, t.sort_order ASC, t.name COLLATE NOCASE ASC
+      ''', ids);
+    final tagsByItemId = <String, List<FileTag>>{
+      for (final id in ids) id: <FileTag>[],
+    };
+    for (final row in tagRows) {
+      final itemId = row['file_item_id'] as String;
+      tagsByItemId[itemId]?.add(_mapTag(row));
+    }
+    return tagsByItemId;
+  }
+
+  FileItem _mapItem(Map<String, Object?> row, List<FileTag> tags) {
     return FileItem(
       id: row['id'] as String,
       title: row['title'] as String,
@@ -1153,7 +1177,7 @@ $body
       archivedAt: row['archived_at'] == null
           ? null
           : DateTime.parse(row['archived_at'] as String),
-      tags: tagRows.map(_mapTag).toList(),
+      tags: tags,
     );
   }
 

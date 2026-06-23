@@ -6,9 +6,13 @@ import '../models/note_item.dart';
 import '../theme/app_theme.dart';
 import '../utils/app_localizations.dart';
 import '../utils/cloud_sync_service.dart';
+import '../utils/format_utils.dart' as fmt;
 import '../utils/note_persistence.dart';
 import '../widgets/app_components.dart';
+import '../widgets/archived_items_sheet.dart';
+import '../widgets/page_fab.dart';
 import '../widgets/responsive_scaffold.dart';
+import '../widgets/selection_manager.dart';
 import 'note_editor_screen.dart';
 
 class NoteListScreen extends StatefulWidget {
@@ -25,16 +29,28 @@ class NoteListScreen extends StatefulWidget {
   State<NoteListScreen> createState() => NoteListScreenState();
 }
 
-class NoteListScreenState extends State<NoteListScreen> {
+class NoteListScreenState extends State<NoteListScreen>
+    with PageFabBinding<NoteListScreen>, SelectionManager<NoteListScreen> {
   final NotePersistenceService _service = NotePersistenceService();
 
   List<NoteItem> _notes = [];
   List<NoteItem> _archivedNotes = [];
-  final Set<String> _selectedIds = {};
   String? _focusedNoteId;
   bool _isLoading = true;
-  bool _isSelectionMode = false;
-  bool _fabSyncScheduled = false;
+
+  @override
+  PageFabController get pageFabController => widget.fabController;
+
+  @override
+  int get pageFabIndex => widget.pageIndex;
+
+  @override
+  bool get pageFabReady => !_isLoading;
+
+  @override
+  void onSelectionChanged() {
+    schedulePageFabSync();
+  }
 
   @override
   void initState() {
@@ -44,42 +60,13 @@ class NoteListScreenState extends State<NoteListScreen> {
   }
 
   @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    _scheduleFabSync();
-  }
-
-  @override
-  void dispose() {
-    widget.fabController.clearConfig(widget.pageIndex);
-    super.dispose();
-  }
-
-  void _scheduleFabSync() {
-    if (_fabSyncScheduled) {
-      return;
-    }
-    _fabSyncScheduled = true;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _fabSyncScheduled = false;
-      if (!mounted) {
-        return;
-      }
-      if (_isLoading) {
-        widget.fabController.clearConfig(widget.pageIndex);
-        return;
-      }
-      widget.fabController.setConfig(widget.pageIndex, _buildFabConfig());
-    });
-  }
-
-  PageFabConfig _buildFabConfig() {
+  PageFabConfig buildPageFabConfig() {
     return PageFabConfig(
-      tooltip: _isSelectionMode ? context.l10n.delete : context.l10n.createNote,
-      icon: _isSelectionMode ? Icons.delete : Icons.add,
-      isDestructive: _isSelectionMode,
-      onPressed: _isSelectionMode ? _deleteSelectedNotes : _openEditor,
-      actions: _isSelectionMode
+      tooltip: isSelectionMode ? context.l10n.delete : context.l10n.createNote,
+      icon: isSelectionMode ? Icons.delete : Icons.add,
+      isDestructive: isSelectionMode,
+      onPressed: isSelectionMode ? _deleteSelectedNotes : _openEditor,
+      actions: isSelectionMode
           ? [
               ContextualFabAction(
                 icon: Icons.archive_outlined,
@@ -89,7 +76,7 @@ class NoteListScreenState extends State<NoteListScreen> {
               ContextualFabAction(
                 icon: Icons.close,
                 tooltip: context.l10n.clearSelection,
-                onPressed: _exitSelectionMode,
+                onPressed: exitSelectionMode,
               ),
             ]
           : const [],
@@ -112,11 +99,11 @@ class NoteListScreenState extends State<NoteListScreen> {
       _archivedNotes = archived;
       _isLoading = false;
     });
-    _scheduleFabSync();
+    schedulePageFabSync();
   }
 
   Future<void> _openEditor({NoteItem? note}) async {
-    if (_isSelectionMode) {
+    if (isSelectionMode) {
       return;
     }
     final result = await Navigator.of(context).push<bool>(
@@ -155,21 +142,21 @@ class NoteListScreenState extends State<NoteListScreen> {
   }
 
   Future<void> _archiveSelectedNotes() async {
-    if (_selectedIds.isEmpty) {
+    if (selectedIds.isEmpty) {
       return;
     }
-    for (final id in _selectedIds) {
+    for (final id in selectedIds) {
       await _service.archiveNote(id);
     }
     if (!mounted) {
       return;
     }
-    _exitSelectionMode();
+    exitSelectionMode();
     await _loadNotes();
   }
 
   Future<void> _deleteSelectedNotes() async {
-    if (_selectedIds.isEmpty) {
+    if (selectedIds.isEmpty) {
       return;
     }
     final shouldDelete =
@@ -177,7 +164,7 @@ class NoteListScreenState extends State<NoteListScreen> {
           context: context,
           builder: (context) => AlertDialog(
             title: Text(context.l10n.deleteSelectedNotes),
-            content: Text(context.l10n.deleteNotesMessage(_selectedIds.length)),
+            content: Text(context.l10n.deleteNotesMessage(selectedIds.length)),
             actions: [
               TextButton(
                 onPressed: () => Navigator.of(context).pop(false),
@@ -194,45 +181,15 @@ class NoteListScreenState extends State<NoteListScreen> {
     if (!shouldDelete) {
       return;
     }
-    await _service.deleteNotes(_selectedIds);
+    await _service.deleteNotes(selectedIds);
     if (!mounted) {
       return;
     }
-    setState(() {
-      _selectedIds.clear();
-      _isSelectionMode = false;
-    });
-    _scheduleFabSync();
+    exitSelectionMode();
     await _loadNotes();
   }
 
-  void _toggleSelection(NoteItem note) {
-    setState(() {
-      if (_selectedIds.contains(note.id)) {
-        _selectedIds.remove(note.id);
-        if (_selectedIds.isEmpty) {
-          _isSelectionMode = false;
-        }
-      } else {
-        _selectedIds.add(note.id);
-        _isSelectionMode = true;
-      }
-    });
-    _scheduleFabSync();
-  }
-
-  void _exitSelectionMode() {
-    setState(() {
-      _isSelectionMode = false;
-      _selectedIds.clear();
-    });
-    _scheduleFabSync();
-  }
-
-  String _formatDateTime(DateTime value) {
-    return '${value.year}-${value.month.toString().padLeft(2, '0')}-${value.day.toString().padLeft(2, '0')} '
-        '${value.hour.toString().padLeft(2, '0')}:${value.minute.toString().padLeft(2, '0')}';
-  }
+  String _formatDateTime(DateTime value) => fmt.formatDateTime(value);
 
   String _notesHeaderMeta() {
     return context.l10n.ui(
@@ -243,49 +200,16 @@ class NoteListScreenState extends State<NoteListScreen> {
   }
 
   Future<void> _showArchivedNotes() async {
-    await showAppActionSheet<void>(
+    await showArchivedItemsSheet(
       context: context,
-      builder: (sheetContext) {
-        return Padding(
-          padding: const EdgeInsets.fromLTRB(18, 0, 18, 18),
-          child: ConstrainedBox(
-            constraints: BoxConstraints(
-              maxHeight: MediaQuery.sizeOf(context).height * 0.72,
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                SectionHeader(
-                  eyebrow: context.l10n.notesEyebrow,
-                  title:
-                      '${context.l10n.archivedNotes} (${_archivedNotes.length})',
-                  description: context.l10n.noArchivedNotes,
-                  showContext: false,
-                  showCompactMeta: _archivedNotes.isEmpty,
-                ),
-                const SizedBox(height: AppTheme.space3),
-                Flexible(
-                  child: _archivedNotes.isEmpty
-                      ? EmptyState(
-                          icon: Icons.archive_outlined,
-                          title: context.l10n.archivedNotes,
-                          message: context.l10n.noArchivedNotes,
-                        )
-                      : ListView.builder(
-                          shrinkWrap: true,
-                          itemCount: _archivedNotes.length,
-                          itemBuilder: (context, index) => _buildNoteCard(
-                            _archivedNotes[index],
-                            archived: true,
-                          ),
-                        ),
-                ),
-              ],
-            ),
-          ),
-        );
-      },
+      eyebrow: context.l10n.notesEyebrow,
+      title: context.l10n.archivedNotes,
+      emptyMessage: context.l10n.noArchivedNotes,
+      itemCount: _archivedNotes.length,
+      itemBuilder: (context, index) => _buildNoteCard(
+        _archivedNotes[index],
+        archived: true,
+      ),
     );
   }
 
@@ -295,7 +219,7 @@ class NoteListScreenState extends State<NoteListScreen> {
     bool desktop = false,
   }) {
     final isSelected =
-        _selectedIds.contains(note.id) ||
+        selectedIds.contains(note.id) ||
         desktop && _focusedNote?.id == note.id;
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
@@ -316,18 +240,18 @@ class NoteListScreenState extends State<NoteListScreen> {
               ? () => setState(() => _focusedNoteId = note.id)
               : archived
               ? () => _openEditor(note: note)
-              : _isSelectionMode
-              ? () => _toggleSelection(note)
+              : isSelectionMode
+              ? () => toggleSelection(note.id)
               : () => _openEditor(note: note),
           onLongPress: archived
               ? null
               : () {
-                  if (!_isSelectionMode) {
+                  if (!isSelectionMode) {
                     setState(() {
-                      _isSelectionMode = true;
-                      _selectedIds.add(note.id);
+                      isSelectionMode = true;
+                      selectedIds.add(note.id);
                     });
-                    _scheduleFabSync();
+                    schedulePageFabSync();
                   }
                 },
           child: Padding(
@@ -335,10 +259,10 @@ class NoteListScreenState extends State<NoteListScreen> {
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                if (_isSelectionMode && !archived) ...[
+                if (isSelectionMode && !archived) ...[
                   Checkbox(
                     value: isSelected,
-                    onChanged: (_) => _toggleSelection(note),
+                    onChanged: (_) => toggleSelection(note.id),
                   ),
                   const SizedBox(width: 4),
                 ] else ...[
@@ -496,10 +420,10 @@ class NoteListScreenState extends State<NoteListScreen> {
             SliverToBoxAdapter(
               child: SectionHeader(
                 eyebrow: context.l10n.notesEyebrow,
-                title: _isSelectionMode
-                    ? context.l10n.selectedCount(_selectedIds.length)
+                title: isSelectionMode
+                    ? context.l10n.selectedCount(selectedIds.length)
                     : context.l10n.notesTitle,
-                description: _isSelectionMode
+                description: isSelectionMode
                     ? context.l10n.ui(
                         '删除前请确认选中的笔记。',
                         'Review selected notes before deleting them.',
@@ -534,10 +458,10 @@ class NoteListScreenState extends State<NoteListScreen> {
     }
 
     return PopScope(
-      canPop: !_isSelectionMode,
+      canPop: !isSelectionMode,
       onPopInvokedWithResult: (didPop, result) {
-        if (!didPop && _isSelectionMode) {
-          _exitSelectionMode();
+        if (!didPop && isSelectionMode) {
+          exitSelectionMode();
         }
       },
       child: SafeArea(
@@ -558,10 +482,10 @@ class NoteListScreenState extends State<NoteListScreen> {
                     SliverToBoxAdapter(
                       child: PageIntro(
                         eyebrow: context.l10n.notesEyebrow,
-                        title: _isSelectionMode
-                            ? context.l10n.selectedCount(_selectedIds.length)
+                        title: isSelectionMode
+                            ? context.l10n.selectedCount(selectedIds.length)
                             : context.l10n.notesTitle,
-                        description: _isSelectionMode
+                        description: isSelectionMode
                             ? context.l10n.ui(
                                 '删除前请确认选中的笔记。',
                                 'Review selected notes before deleting them.',
@@ -569,9 +493,9 @@ class NoteListScreenState extends State<NoteListScreen> {
                             : _notesHeaderMeta(),
                         showContext: false,
                         showCompactMeta: true,
-                        trailing: _isSelectionMode
+                        trailing: isSelectionMode
                             ? QuietIconButton(
-                                onPressed: _exitSelectionMode,
+                                onPressed: exitSelectionMode,
                                 icon: Icons.close,
                                 tooltip: context.l10n.clearSelection,
                                 color: AppTheme.danger,

@@ -6,8 +6,11 @@ import '../models/time_event.dart';
 import '../models/todo_item.dart';
 import '../theme/app_theme.dart';
 import '../utils/app_localizations.dart';
+import '../utils/event_lookups.dart';
+import '../utils/format_utils.dart' as fmt;
 import '../utils/todo_persistence.dart';
 import '../widgets/app_components.dart';
+import '../widgets/page_fab.dart';
 import '../widgets/responsive_scaffold.dart';
 import 'settings_screen.dart';
 
@@ -41,7 +44,8 @@ class EventListScreen extends StatefulWidget {
   State<EventListScreen> createState() => _EventListScreenState();
 }
 
-class _EventListScreenState extends State<EventListScreen> {
+class _EventListScreenState extends State<EventListScreen>
+    with PageFabBinding<EventListScreen> {
   final TodoPersistenceService _todoService = TodoPersistenceService();
   final TextEditingController _entryDescriptionController =
       TextEditingController();
@@ -50,11 +54,16 @@ class _EventListScreenState extends State<EventListScreen> {
   final TextEditingController _entryMinutesController = TextEditingController();
 
   List<TodoItem> _availableTodos = [];
-  Map<String, Color> _todoColorMap = {};
+  EventLookups _lookups = EventLookups(const {});
   String? _entryLinkedTodoId;
   int _entrySuggestedMinutes = 0;
   String? _focusedEventId;
-  bool _fabSyncScheduled = false;
+
+  @override
+  PageFabController get pageFabController => widget.fabController;
+
+  @override
+  int get pageFabIndex => widget.pageIndex;
 
   @override
   void initState() {
@@ -63,23 +72,16 @@ class _EventListScreenState extends State<EventListScreen> {
   }
 
   @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    _scheduleFabSync();
-  }
-
-  @override
   void didUpdateWidget(covariant EventListScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.isSelectionMode != widget.isSelectionMode ||
         oldWidget.selectedIds.length != widget.selectedIds.length) {
-      _scheduleFabSync();
+      schedulePageFabSync();
     }
   }
 
   @override
   void dispose() {
-    widget.fabController.clearConfig(widget.pageIndex);
     _entryDescriptionController.dispose();
     _entryNoteController.dispose();
     _entryHoursController.dispose();
@@ -87,21 +89,8 @@ class _EventListScreenState extends State<EventListScreen> {
     super.dispose();
   }
 
-  void _scheduleFabSync() {
-    if (_fabSyncScheduled) {
-      return;
-    }
-    _fabSyncScheduled = true;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _fabSyncScheduled = false;
-      if (!mounted) {
-        return;
-      }
-      widget.fabController.setConfig(widget.pageIndex, _buildFabConfig());
-    });
-  }
-
-  PageFabConfig _buildFabConfig() {
+  @override
+  PageFabConfig buildPageFabConfig() {
     return PageFabConfig(
       tooltip: widget.isSelectionMode
           ? context.l10n.delete
@@ -125,14 +114,14 @@ class _EventListScreenState extends State<EventListScreen> {
 
   Future<void> _loadAvailableTodos() async {
     final todos = await _todoService.loadAvailableTagTodos();
-    final colorMap = await _todoService.loadTodoColorMap();
+    final lookups = await EventLookups.load();
     if (!mounted) {
       return;
     }
 
     setState(() {
       _availableTodos = todos;
-      _todoColorMap = colorMap;
+      _lookups = lookups;
     });
   }
 
@@ -338,52 +327,25 @@ class _EventListScreenState extends State<EventListScreen> {
   }
 
   Color _colorForEvent(TimeEvent event) {
-    return _todoColorMap[event.linkedTodoId] ??
-        switch (event.type) {
-          EventType.work => AppTheme.steel,
-          EventType.study => AppTheme.success,
-          EventType.play => AppTheme.copper,
-        };
+    return _lookups.colorForEvent(event);
   }
 
   String _tagForEvent(TimeEvent event) {
-    switch (event.linkedTodoId) {
-      case 'system-work':
-        return 'Work';
-      case 'system-study':
-        return 'Study';
-      case 'system-play':
-        return 'Leisure';
-      default:
-        return event.linkedTodoTitle ?? 'No tag';
-    }
+    return _lookups.tagForEvent(event, (key) => switch (key) {
+      'work' => context.l10n.work,
+      'study' => context.l10n.study,
+      'leisure' => context.l10n.leisure,
+      'noTag' => context.l10n.noTag,
+      _ => key,
+    });
   }
 
-  String _formatDuration(int totalMinutes) {
-    final hours = totalMinutes ~/ 60;
-    final minutes = totalMinutes % 60;
-    if (hours == 0) {
-      return '$minutes min';
-    }
-    if (minutes == 0) {
-      return '$hours hr';
-    }
-    return '$hours hr $minutes min';
-  }
+  String _formatDuration(int totalMinutes) => fmt.formatDuration(totalMinutes);
 
-  String _formatCompactDuration(int totalMinutes) {
-    final hours = totalMinutes ~/ 60;
-    final minutes = totalMinutes % 60;
-    return '$hours:${minutes.toString().padLeft(2, '0')}';
-  }
+  String _formatCompactDuration(int totalMinutes) =>
+      fmt.formatCompactDuration(totalMinutes);
 
-  String _formatDateTime(DateTime value) {
-    final date =
-        '${value.year}-${value.month.toString().padLeft(2, '0')}-${value.day.toString().padLeft(2, '0')}';
-    final time =
-        '${value.hour.toString().padLeft(2, '0')}:${value.minute.toString().padLeft(2, '0')}';
-    return '$date · $time';
-  }
+  String _formatDateTime(DateTime value) => fmt.formatDateTime(value);
 
   String _entriesHeaderMeta() {
     return context.l10n.ui(

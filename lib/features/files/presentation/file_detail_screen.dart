@@ -9,11 +9,11 @@ import 'package:path/path.dart' as p;
 import 'package:url_launcher/url_launcher.dart';
 import 'package:video_player/video_player.dart';
 
-import '../models/file_item.dart';
-import '../theme/app_theme.dart';
-import '../utils/app_localizations.dart';
-import '../utils/file_library_service.dart';
-import '../widgets/app_components.dart';
+import '../../../models/file_item.dart';
+import '../../../theme/app_theme.dart';
+import '../../../utils/app_localizations.dart';
+import '../../../widgets/app_components.dart';
+import '../data/file_library_service.dart';
 
 enum _WebViewMode { live, snapshot }
 

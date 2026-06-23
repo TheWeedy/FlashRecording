@@ -4,16 +4,17 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_quill/flutter_quill.dart';
 
-import '../models/note_item.dart';
-import '../models/file_item.dart';
-import '../theme/app_theme.dart';
-import '../utils/ai_service.dart';
-import '../utils/app_localizations.dart';
-import '../utils/cloud_sync_service.dart';
-import '../utils/file_library_service.dart';
-import '../utils/note_persistence.dart';
-import '../widgets/app_components.dart';
-import '../widgets/responsive_scaffold.dart';
+import '../../../models/file_item.dart';
+import '../../../models/note_item.dart';
+import '../../../theme/app_theme.dart';
+import '../../../utils/ai_service.dart';
+import '../../../utils/app_localizations.dart';
+import '../../../utils/cloud_sync_service.dart';
+import '../../../utils/note_persistence.dart';
+import '../../../widgets/app_components.dart';
+import '../../../widgets/page_fab.dart';
+import '../../../widgets/responsive_scaffold.dart';
+import '../data/file_library_service.dart';
 import 'file_detail_screen.dart';
 
 enum _FileLibraryView { active, archived }
@@ -32,7 +33,8 @@ class FilesScreen extends StatefulWidget {
   State<FilesScreen> createState() => FilesScreenState();
 }
 
-class FilesScreenState extends State<FilesScreen> {
+class FilesScreenState extends State<FilesScreen>
+    with PageFabBinding<FilesScreen> {
   final FileLibraryService _service = FileLibraryService();
   final TextEditingController _searchController = TextEditingController();
 
@@ -45,7 +47,16 @@ class FilesScreenState extends State<FilesScreen> {
   bool _isLoading = true;
   bool _isImporting = false;
   bool _isAiTitling = false;
-  bool _fabSyncScheduled = false;
+  Timer? _searchDebounce;
+
+  @override
+  PageFabController get pageFabController => widget.fabController;
+
+  @override
+  int get pageFabIndex => widget.pageIndex;
+
+  @override
+  bool get pageFabReady => !_isLoading;
 
   @override
   void initState() {
@@ -55,37 +66,14 @@ class FilesScreenState extends State<FilesScreen> {
   }
 
   @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    _scheduleFabSync();
-  }
-
-  @override
   void dispose() {
-    widget.fabController.clearConfig(widget.pageIndex);
+    _searchDebounce?.cancel();
     _searchController.dispose();
     super.dispose();
   }
 
-  void _scheduleFabSync() {
-    if (_fabSyncScheduled) {
-      return;
-    }
-    _fabSyncScheduled = true;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _fabSyncScheduled = false;
-      if (!mounted) {
-        return;
-      }
-      if (_isLoading) {
-        widget.fabController.clearConfig(widget.pageIndex);
-        return;
-      }
-      widget.fabController.setConfig(widget.pageIndex, _buildFabConfig());
-    });
-  }
-
-  PageFabConfig _buildFabConfig() {
+  @override
+  PageFabConfig buildPageFabConfig() {
     final showingArchive = _view == _FileLibraryView.archived;
     final isSelectionMode = _selectedIds.isNotEmpty;
     return PageFabConfig(
@@ -125,13 +113,13 @@ class FilesScreenState extends State<FilesScreen> {
     );
   }
 
-  Future<void> _load() async {
+  Future<void> _load({bool reloadTags = true}) async {
     final items = await _service.loadItems(
       query: _searchController.text,
       tagId: _selectedTagId,
       archived: _view == _FileLibraryView.archived,
     );
-    final tags = await _service.loadTags();
+    final tags = reloadTags ? await _service.loadTags() : _tags;
     if (!mounted) {
       return;
     }
@@ -140,7 +128,7 @@ class FilesScreenState extends State<FilesScreen> {
       _tags = tags;
       _isLoading = false;
     });
-    _scheduleFabSync();
+    schedulePageFabSync();
   }
 
   Future<void> refresh() => _load();
@@ -148,6 +136,21 @@ class FilesScreenState extends State<FilesScreen> {
   Future<void> refreshFromCloud({bool force = true}) async {
     await CloudSyncService.instance.syncNow(force: force);
     await _load();
+  }
+
+  void _reloadFilesNow({bool reloadTags = false}) {
+    _searchDebounce?.cancel();
+    unawaited(_load(reloadTags: reloadTags));
+  }
+
+  void _scheduleSearchLoad() {
+    _searchDebounce?.cancel();
+    setState(() {});
+    _searchDebounce = Timer(const Duration(milliseconds: 250), () {
+      if (mounted) {
+        unawaited(_load(reloadTags: false));
+      }
+    });
   }
 
   FileItem? get _focusedItem {
@@ -185,7 +188,7 @@ class FilesScreenState extends State<FilesScreen> {
     setState(() {
       _isImporting = true;
     });
-    _scheduleFabSync();
+    schedulePageFabSync();
     try {
       await action();
       await _load();
@@ -207,7 +210,7 @@ class FilesScreenState extends State<FilesScreen> {
         setState(() {
           _isImporting = false;
         });
-        _scheduleFabSync();
+        schedulePageFabSync();
       }
     }
   }
@@ -375,7 +378,7 @@ class FilesScreenState extends State<FilesScreen> {
     setState(() {
       _isImporting = true;
     });
-    _scheduleFabSync();
+    schedulePageFabSync();
     try {
       for (final file in result.files) {
         final path = file.path;
@@ -402,7 +405,7 @@ class FilesScreenState extends State<FilesScreen> {
         setState(() {
           _isImporting = false;
         });
-        _scheduleFabSync();
+        schedulePageFabSync();
       }
     }
   }
@@ -1145,7 +1148,7 @@ class FilesScreenState extends State<FilesScreen> {
     setState(() {
       _selectedIds.clear();
     });
-    _scheduleFabSync();
+    schedulePageFabSync();
   }
 
   void _openItem(FileItem item) {
@@ -1178,6 +1181,79 @@ class FilesScreenState extends State<FilesScreen> {
     );
   }
 
+  void _selectFilter(_FileLibraryView view, String? tagId) {
+    setState(() {
+      _view = view;
+      _selectedTagId = tagId;
+    });
+    schedulePageFabSync();
+    _reloadFilesNow();
+  }
+
+  Widget _buildFilterChoice({
+    required IconData icon,
+    required String label,
+    required bool selected,
+    required VoidCallback onSelected,
+    required bool stretch,
+  }) {
+    return ChoiceChip(
+      avatar: Icon(icon, size: 18),
+      showCheckmark: false,
+      label: stretch
+          ? Align(alignment: Alignment.centerLeft, child: Text(label))
+          : Text(label),
+      selected: selected,
+      onSelected: (_) => onSelected(),
+    );
+  }
+
+  Widget _buildFilterChoices({required bool vertical}) {
+    final chips = [
+      _buildFilterChoice(
+        icon: Icons.layers_outlined,
+        label: context.l10n.allFiles,
+        selected: _view == _FileLibraryView.active && _selectedTagId == null,
+        onSelected: () => _selectFilter(_FileLibraryView.active, null),
+        stretch: vertical,
+      ),
+      _buildFilterChoice(
+        icon: Icons.archive_outlined,
+        label: context.l10n.archivedFiles,
+        selected: _view == _FileLibraryView.archived && _selectedTagId == null,
+        onSelected: () => _selectFilter(_FileLibraryView.archived, null),
+        stretch: vertical,
+      ),
+      for (final tag in _tags)
+        _buildFilterChoice(
+          icon: Icons.sell_outlined,
+          label: tag.name,
+          selected: _selectedTagId == tag.id,
+          onSelected: () => _selectFilter(_FileLibraryView.active, tag.id),
+          stretch: vertical,
+        ),
+    ];
+    final spaced = <Widget>[
+      for (var index = 0; index < chips.length; index++) ...[
+        chips[index],
+        if (index != chips.length - 1)
+          vertical
+              ? const SizedBox(height: AppTheme.space1)
+              : const SizedBox(width: 8),
+      ],
+    ];
+    if (vertical) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: spaced,
+      );
+    }
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(children: spaced),
+    );
+  }
+
   Widget _buildDesktopFilters() {
     return SingleChildScrollView(
       child: Column(
@@ -1198,64 +1274,7 @@ class FilesScreenState extends State<FilesScreen> {
           const SizedBox(height: AppTheme.space3),
           _buildSearch(),
           const SizedBox(height: AppTheme.space3),
-          ChoiceChip(
-            avatar: const Icon(Icons.layers_outlined, size: 18),
-            showCheckmark: false,
-            label: Align(
-              alignment: Alignment.centerLeft,
-              child: Text(context.l10n.allFiles),
-            ),
-            selected:
-                _view == _FileLibraryView.active && _selectedTagId == null,
-            onSelected: (_) {
-              setState(() {
-                _view = _FileLibraryView.active;
-                _selectedTagId = null;
-              });
-              _scheduleFabSync();
-              _load();
-            },
-          ),
-          const SizedBox(height: AppTheme.space1),
-          ChoiceChip(
-            avatar: const Icon(Icons.archive_outlined, size: 18),
-            showCheckmark: false,
-            label: Align(
-              alignment: Alignment.centerLeft,
-              child: Text(context.l10n.archivedFiles),
-            ),
-            selected:
-                _view == _FileLibraryView.archived && _selectedTagId == null,
-            onSelected: (_) {
-              setState(() {
-                _view = _FileLibraryView.archived;
-                _selectedTagId = null;
-              });
-              _scheduleFabSync();
-              _load();
-            },
-          ),
-          const SizedBox(height: AppTheme.space2),
-          for (final tag in _tags) ...[
-            ChoiceChip(
-              avatar: const Icon(Icons.sell_outlined, size: 18),
-              showCheckmark: false,
-              label: Align(
-                alignment: Alignment.centerLeft,
-                child: Text(tag.name),
-              ),
-              selected: _selectedTagId == tag.id,
-              onSelected: (_) {
-                setState(() {
-                  _view = _FileLibraryView.active;
-                  _selectedTagId = tag.id;
-                });
-                _scheduleFabSync();
-                _load();
-              },
-            ),
-            const SizedBox(height: AppTheme.space1),
-          ],
+          _buildFilterChoices(vertical: true),
         ],
       ),
     );
@@ -1396,6 +1415,31 @@ class FilesScreenState extends State<FilesScreen> {
     );
   }
 
+  Widget _buildFileListSliver({
+    required IconData emptyIcon,
+    required String emptyTitle,
+    required String emptyMessage,
+  }) {
+    if (_isImporting) {
+      return const SliverToBoxAdapter(
+        child: LinearProgressIndicator(minHeight: 3),
+      );
+    }
+    if (_items.isEmpty) {
+      return SliverToBoxAdapter(
+        child: EmptyState(
+          icon: emptyIcon,
+          title: emptyTitle,
+          message: emptyMessage,
+        ),
+      );
+    }
+    return SliverList.builder(
+      itemCount: _items.length,
+      itemBuilder: (context, index) => _buildItemCard(_items[index], index),
+    );
+  }
+
   Widget _buildDesktopLayout(int selectedCount) {
     return AdaptiveWorkspace(
       primaryFlex: 3,
@@ -1404,38 +1448,32 @@ class FilesScreenState extends State<FilesScreen> {
       primary: _buildDesktopFilters(),
       secondary: RefreshIndicator(
         onRefresh: refreshFromCloud,
-        child: ListView(
+        child: CustomScrollView(
           physics: const AlwaysScrollableScrollPhysics(),
-          children: [
-            SectionHeader(
-              eyebrow: context.l10n.ui('资料列表', 'Library', 'ライブラリ'),
-              title: selectedCount == 0
-                  ? context.l10n.filesTitle
-                  : context.l10n.selectedCount(selectedCount),
-              description: context.l10n.filesDescription,
-              showContext: false,
-              trailing: selectedCount == 0
-                  ? QuietIconButton(
-                      icon: Icons.auto_awesome_outlined,
-                      tooltip: context.l10n.aiTitleFiles,
-                      onPressed: _showAiTitleSheet,
-                    )
-                  : null,
-            ),
-            const SizedBox(height: AppTheme.space3),
-            if (_isImporting)
-              const LinearProgressIndicator(minHeight: 3)
-            else if (_items.isEmpty)
-              EmptyState(
-                icon: Icons.folder_copy_outlined,
-                title: context.l10n.noFilesTitle,
-                message: context.l10n.noFilesMessage,
-              )
-            else
-              ...List.generate(
-                _items.length,
-                (index) => _buildItemCard(_items[index], index),
+          slivers: [
+            SliverToBoxAdapter(
+              child: SectionHeader(
+                eyebrow: context.l10n.ui('资料列表', 'Library', 'ライブラリ'),
+                title: selectedCount == 0
+                    ? context.l10n.filesTitle
+                    : context.l10n.selectedCount(selectedCount),
+                description: context.l10n.filesDescription,
+                showContext: false,
+                trailing: selectedCount == 0
+                    ? QuietIconButton(
+                        icon: Icons.auto_awesome_outlined,
+                        tooltip: context.l10n.aiTitleFiles,
+                        onPressed: _showAiTitleSheet,
+                      )
+                    : null,
               ),
+            ),
+            const SliverToBoxAdapter(child: SizedBox(height: AppTheme.space3)),
+            _buildFileListSliver(
+              emptyIcon: Icons.folder_copy_outlined,
+              emptyTitle: context.l10n.noFilesTitle,
+              emptyMessage: context.l10n.noFilesMessage,
+            ),
           ],
         ),
       ),
@@ -1451,7 +1489,7 @@ class FilesScreenState extends State<FilesScreen> {
         _selectedIds.add(id);
       }
     });
-    _scheduleFabSync();
+    schedulePageFabSync();
   }
 
   @override
@@ -1484,61 +1522,63 @@ class FilesScreenState extends State<FilesScreen> {
       child: SafeArea(
         child: RefreshIndicator(
           onRefresh: refreshFromCloud,
-          child: ListView(
+          child: CustomScrollView(
             physics: const AlwaysScrollableScrollPhysics(),
-            padding: EdgeInsets.fromLTRB(
-              AppTheme.pagePadding,
-              18,
-              AppTheme.pagePadding,
-              selectedCount > 0 ? 150 : 104,
-            ),
-            children: [
-              PageIntro(
-                eyebrow: l10n.filesEyebrow,
-                title: selectedCount == 0
-                    ? l10n.filesTitle
-                    : l10n.selectedCount(selectedCount),
-                description: selectedCount == 0
-                    ? _filesHeaderMeta()
-                    : l10n.filesDescription,
-                showContext: false,
-                showCompactMeta: selectedCount == 0,
-                trailing: selectedCount == 0
-                    ? QuietIconButton(
-                        icon: Icons.auto_awesome_outlined,
-                        tooltip: l10n.aiTitleFiles,
-                        onPressed: _showAiTitleSheet,
-                      )
-                    : null,
-              ),
-              const SizedBox(height: 16),
-              _buildSearch(visible: selectedCount == 0),
-              const SizedBox(height: 12),
-              _buildTagFilters(),
-              const SizedBox(height: 16),
-              if (_isImporting)
-                const LinearProgressIndicator(minHeight: 3)
-              else if (_items.isEmpty)
-                EmptyState(
-                  icon: showingArchive
-                      ? Icons.archive_outlined
-                      : Icons.folder_copy_outlined,
-                  title: showingArchive
-                      ? l10n.ui('归档为空', 'Archive is empty', 'アーカイブは空です')
-                      : l10n.noFilesTitle,
-                  message: showingArchive
-                      ? l10n.ui(
-                          '归档后的文件会显示在这里，可随时恢复。',
-                          'Archived files appear here and can be restored anytime.',
-                          'アーカイブ済みファイルはここに表示され、いつでも復元できます。',
-                        )
-                      : l10n.noFilesMessage,
-                )
-              else
-                ...List.generate(
-                  _items.length,
-                  (index) => _buildItemCard(_items[index], index),
+            slivers: [
+              SliverPadding(
+                padding: EdgeInsets.fromLTRB(
+                  AppTheme.pagePadding,
+                  18,
+                  AppTheme.pagePadding,
+                  selectedCount > 0 ? 150 : 104,
                 ),
+                sliver: SliverMainAxisGroup(
+                  slivers: [
+                    SliverToBoxAdapter(
+                      child: PageIntro(
+                        eyebrow: l10n.filesEyebrow,
+                        title: selectedCount == 0
+                            ? l10n.filesTitle
+                            : l10n.selectedCount(selectedCount),
+                        description: selectedCount == 0
+                            ? _filesHeaderMeta()
+                            : l10n.filesDescription,
+                        showContext: false,
+                        showCompactMeta: selectedCount == 0,
+                        trailing: selectedCount == 0
+                            ? QuietIconButton(
+                                icon: Icons.auto_awesome_outlined,
+                                tooltip: l10n.aiTitleFiles,
+                                onPressed: _showAiTitleSheet,
+                              )
+                            : null,
+                      ),
+                    ),
+                    const SliverToBoxAdapter(child: SizedBox(height: 16)),
+                    SliverToBoxAdapter(
+                      child: _buildSearch(visible: selectedCount == 0),
+                    ),
+                    const SliverToBoxAdapter(child: SizedBox(height: 12)),
+                    SliverToBoxAdapter(child: _buildTagFilters()),
+                    const SliverToBoxAdapter(child: SizedBox(height: 16)),
+                    _buildFileListSliver(
+                      emptyIcon: showingArchive
+                          ? Icons.archive_outlined
+                          : Icons.folder_copy_outlined,
+                      emptyTitle: showingArchive
+                          ? l10n.ui('归档为空', 'Archive is empty', 'アーカイブは空です')
+                          : l10n.noFilesTitle,
+                      emptyMessage: showingArchive
+                          ? l10n.ui(
+                              '归档后的文件会显示在这里，可随时恢复。',
+                              'Archived files appear here and can be restored anytime.',
+                              'アーカイブ済みファイルはここに表示され、いつでも復元できます。',
+                            )
+                          : l10n.noFilesMessage,
+                    ),
+                  ],
+                ),
+              ),
             ],
           ),
         ),
@@ -1551,7 +1591,7 @@ class FilesScreenState extends State<FilesScreen> {
       controller: _searchController,
       enabled: visible,
       textInputAction: TextInputAction.search,
-      onChanged: (_) => _load(),
+      onChanged: (_) => _scheduleSearchLoad(),
       decoration: InputDecoration(
         prefixIcon: const Icon(Icons.search),
         hintText: context.l10n.searchFiles,
@@ -1561,7 +1601,8 @@ class FilesScreenState extends State<FilesScreen> {
                 onPressed: visible
                     ? () {
                         _searchController.clear();
-                        _load();
+                        setState(() {});
+                        _reloadFilesNow();
                       }
                     : null,
                 icon: const Icon(Icons.close),
@@ -1577,62 +1618,7 @@ class FilesScreenState extends State<FilesScreen> {
   }
 
   Widget _buildTagFilters() {
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      child: Row(
-        children: [
-          ChoiceChip(
-            avatar: const Icon(Icons.layers_outlined, size: 18),
-            showCheckmark: false,
-            label: Text(context.l10n.allFiles),
-            selected:
-                _view == _FileLibraryView.active && _selectedTagId == null,
-            onSelected: (_) {
-              setState(() {
-                _view = _FileLibraryView.active;
-                _selectedTagId = null;
-              });
-              _scheduleFabSync();
-              _load();
-            },
-          ),
-          const SizedBox(width: 8),
-          ChoiceChip(
-            avatar: const Icon(Icons.archive_outlined, size: 18),
-            showCheckmark: false,
-            label: Text(context.l10n.archivedFiles),
-            selected:
-                _view == _FileLibraryView.archived && _selectedTagId == null,
-            onSelected: (_) {
-              setState(() {
-                _view = _FileLibraryView.archived;
-                _selectedTagId = null;
-              });
-              _scheduleFabSync();
-              _load();
-            },
-          ),
-          const SizedBox(width: 8),
-          for (final tag in _tags) ...[
-            ChoiceChip(
-              avatar: const Icon(Icons.sell_outlined, size: 18),
-              showCheckmark: false,
-              label: Text(tag.name),
-              selected: _selectedTagId == tag.id,
-              onSelected: (_) {
-                setState(() {
-                  _view = _FileLibraryView.active;
-                  _selectedTagId = tag.id;
-                });
-                _scheduleFabSync();
-                _load();
-              },
-            ),
-            const SizedBox(width: 8),
-          ],
-        ],
-      ),
-    );
+    return _buildFilterChoices(vertical: false);
   }
 
   Widget _buildItemCard(FileItem item, int index) {

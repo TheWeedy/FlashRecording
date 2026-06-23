@@ -8,9 +8,10 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'app_info.dart';
+import 'features/files/data/file_library_service.dart';
+import 'features/files/presentation/files_screen.dart';
 import 'models/time_event.dart';
 import 'screens/event_list_screen.dart';
-import 'screens/files_screen.dart';
 import 'screens/note_list_screen.dart';
 import 'screens/statistics_screen.dart';
 import 'screens/todo_screen.dart';
@@ -19,10 +20,9 @@ import 'theme/app_theme.dart';
 import 'utils/app_localizations.dart';
 import 'utils/app_preferences_service.dart';
 import 'utils/cloud_sync_service.dart';
-import 'utils/file_library_service.dart';
 import 'utils/notification_service.dart';
 import 'utils/persistence.dart';
-import 'widgets/app_components.dart';
+import 'widgets/page_fab.dart';
 import 'widgets/responsive_scaffold.dart';
 
 const _welcomeSeenKey = 'welcome_seen_v3';

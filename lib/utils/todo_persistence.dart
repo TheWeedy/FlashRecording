@@ -231,7 +231,7 @@ class TodoPersistenceService {
     final db = await LocalDatabase.instance.database;
     final rows = await db.query(
       'todo_items',
-      columns: ['id'],
+      columns: ['id', 'sort_order'],
       orderBy: 'sort_order ASC, is_system DESC, created_at ASC',
     );
     final batch = db.batch();
@@ -239,14 +239,7 @@ class TodoPersistenceService {
     final now = DateTime.now().toIso8601String();
     for (var index = 0; index < rows.length; index++) {
       final id = rows[index]['id'] as String;
-      final currentOrderRows = await db.query(
-        'todo_items',
-        columns: ['sort_order'],
-        where: 'id = ?',
-        whereArgs: [id],
-        limit: 1,
-      );
-      final currentOrder = _asInt(currentOrderRows.first['sort_order']);
+      final currentOrder = _asInt(rows[index]['sort_order']);
       if (currentOrder != index) {
         hasChange = true;
         batch.update(

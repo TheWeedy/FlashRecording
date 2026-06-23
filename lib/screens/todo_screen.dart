@@ -4,12 +4,15 @@ import 'package:flutter/material.dart';
 
 import '../models/todo_item.dart';
 import '../theme/app_theme.dart';
+import '../utils/ai_generation_helper.dart';
 import '../utils/ai_service.dart';
 import '../utils/app_localizations.dart';
 import '../utils/cloud_sync_service.dart';
 import '../utils/notification_service.dart';
 import '../utils/todo_persistence.dart';
 import '../widgets/app_components.dart';
+import '../widgets/archived_items_sheet.dart';
+import '../widgets/page_fab.dart';
 import '../widgets/responsive_scaffold.dart';
 
 class TodoScreen extends StatefulWidget {
@@ -26,7 +29,8 @@ class TodoScreen extends StatefulWidget {
   State<TodoScreen> createState() => TodoScreenState();
 }
 
-class TodoScreenState extends State<TodoScreen> {
+class TodoScreenState extends State<TodoScreen>
+    with PageFabBinding<TodoScreen> {
   static const _presetColors = [
     0xFF2F5D50,
     0xFF356B8C,
@@ -50,7 +54,15 @@ class TodoScreenState extends State<TodoScreen> {
   bool _isLoading = true;
   bool _isAiLoading = false;
   String? _aiPlan;
-  bool _fabSyncScheduled = false;
+
+  @override
+  PageFabController get pageFabController => widget.fabController;
+
+  @override
+  int get pageFabIndex => widget.pageIndex;
+
+  @override
+  bool get pageFabReady => !_isLoading;
 
   @override
   void initState() {
@@ -60,36 +72,7 @@ class TodoScreenState extends State<TodoScreen> {
   }
 
   @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    _scheduleFabSync();
-  }
-
-  @override
-  void dispose() {
-    widget.fabController.clearConfig(widget.pageIndex);
-    super.dispose();
-  }
-
-  void _scheduleFabSync() {
-    if (_fabSyncScheduled) {
-      return;
-    }
-    _fabSyncScheduled = true;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _fabSyncScheduled = false;
-      if (!mounted) {
-        return;
-      }
-      if (_isLoading) {
-        widget.fabController.clearConfig(widget.pageIndex);
-        return;
-      }
-      widget.fabController.setConfig(widget.pageIndex, _buildFabConfig());
-    });
-  }
-
-  PageFabConfig _buildFabConfig() {
+  PageFabConfig buildPageFabConfig() {
     return PageFabConfig(
       tooltip: context.l10n.createTaskTag,
       icon: Icons.add,
@@ -114,7 +97,7 @@ class TodoScreenState extends State<TodoScreen> {
       _archivedTodos = archived;
       _isLoading = false;
     });
-    _scheduleFabSync();
+    schedulePageFabSync();
   }
 
   Future<void> _showCreateTodoDialog() async {
@@ -412,31 +395,25 @@ class TodoScreenState extends State<TodoScreen> {
       _aiPlan = null;
     });
 
-    try {
-      final result = await _aiService.complete(
-        systemPrompt:
-            'You are a practical planning assistant. Respond in concise Chinese with clear markdown bullets.',
-        userPrompt: _buildTaskPlanPrompt(),
-      );
-      if (!mounted) {
-        return;
-      }
+    final result = await AiGenerationHelper.generate(
+      context: context,
+      aiService: _aiService,
+      systemPrompt:
+          'You are a practical planning assistant. Respond in concise Chinese with clear markdown bullets.',
+      userPrompt: _buildTaskPlanPrompt(),
+      setLoading: (loading) {
+        if (mounted) {
+          setState(() {
+            _isAiLoading = loading;
+          });
+        }
+      },
+      mounted: mounted,
+    );
+    if (result != null && mounted) {
       setState(() {
         _aiPlan = result;
       });
-    } on AiServiceException catch (error) {
-      if (!mounted) {
-        return;
-      }
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(context.l10n.localizeError(error.message))),
-      );
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isAiLoading = false;
-        });
-      }
     }
   }
 
@@ -479,51 +456,17 @@ ${_archivedTodos.isEmpty ? '- 无' : _archivedTodos.map(itemLine).join('\n')}
 
   Future<void> _showArchivedTodos() async {
     final l10n = context.l10n;
-    await showAppActionSheet<void>(
+    await showArchivedItemsSheet(
       context: context,
-      builder: (sheetContext) {
-        return Padding(
-          padding: const EdgeInsets.fromLTRB(18, 0, 18, 18),
-          child: ConstrainedBox(
-            constraints: BoxConstraints(
-              maxHeight: MediaQuery.sizeOf(context).height * 0.72,
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                SectionHeader(
-                  eyebrow: l10n.tasksEyebrow,
-                  title: '${l10n.archived} (${_archivedTodos.length})',
-                  description: l10n.noArchivedTaskTags,
-                  showContext: false,
-                  showCompactMeta: _archivedTodos.isEmpty,
-                ),
-                const SizedBox(height: AppTheme.space3),
-                Flexible(
-                  child: _archivedTodos.isEmpty
-                      ? EmptyState(
-                          icon: Icons.archive_outlined,
-                          title: l10n.archived,
-                          message: l10n.noArchivedTaskTags,
-                        )
-                      : ListView.builder(
-                          shrinkWrap: true,
-                          itemCount: _archivedTodos.length,
-                          itemBuilder: (context, index) => _buildTodoCard(
-                            _archivedTodos[index],
-                            archived: true,
-                            key: ValueKey(
-                              'archived-${_archivedTodos[index].id}',
-                            ),
-                          ),
-                        ),
-                ),
-              ],
-            ),
-          ),
-        );
-      },
+      eyebrow: l10n.tasksEyebrow,
+      title: l10n.archived,
+      emptyMessage: l10n.noArchivedTaskTags,
+      itemCount: _archivedTodos.length,
+      itemBuilder: (context, index) => _buildTodoCard(
+        _archivedTodos[index],
+        archived: true,
+        key: ValueKey('archived-${_archivedTodos[index].id}'),
+      ),
     );
   }
 
@@ -662,9 +605,7 @@ ${_archivedTodos.isEmpty ? '- 无' : _archivedTodos.map(itemLine).join('\n')}
       secondaryFlex: 4,
       primary: RefreshIndicator(
         onRefresh: refreshFromCloud,
-        child: ReorderableListView(
-          physics: const AlwaysScrollableScrollPhysics(),
-          onReorderItem: _reorderActiveTodos,
+        child: _buildTodoList(
           header: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -685,26 +626,6 @@ ${_archivedTodos.isEmpty ? '- 无' : _archivedTodos.map(itemLine).join('\n')}
               const SizedBox(height: AppTheme.space3),
             ],
           ),
-          children: _activeTodos.isEmpty
-              ? [
-                  Padding(
-                    key: const ValueKey('empty-task-card'),
-                    padding: const EdgeInsets.only(bottom: 10),
-                    child: EmptyState(
-                      icon: Icons.checklist_outlined,
-                      title: l10n.noTaskTagsTitle,
-                      message: l10n.noTaskTagsMessage,
-                    ),
-                  ),
-                ]
-              : List.generate(
-                  _activeTodos.length,
-                  (index) => _buildTodoCard(
-                    _activeTodos[index],
-                    key: ValueKey(_activeTodos[index].id),
-                    index: index,
-                  ),
-                ),
         ),
       ),
       secondary: SingleChildScrollView(
@@ -730,15 +651,13 @@ ${_archivedTodos.isEmpty ? '- 无' : _archivedTodos.map(itemLine).join('\n')}
     return SafeArea(
       child: RefreshIndicator(
         onRefresh: refreshFromCloud,
-        child: ReorderableListView(
-          physics: const AlwaysScrollableScrollPhysics(),
+        child: _buildTodoList(
           padding: const EdgeInsets.fromLTRB(
             AppTheme.pagePadding,
             12,
             AppTheme.pagePadding,
             142,
           ),
-          onReorderItem: _reorderActiveTodos,
           header: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -762,28 +681,40 @@ ${_archivedTodos.isEmpty ? '- 无' : _archivedTodos.map(itemLine).join('\n')}
             ],
           ),
           footer: const SizedBox(height: 16),
-          children: _activeTodos.isEmpty
-              ? [
-                  Padding(
-                    key: const ValueKey('empty-task-card'),
-                    padding: const EdgeInsets.only(bottom: 10),
-                    child: EmptyState(
-                      icon: Icons.checklist_outlined,
-                      title: l10n.noTaskTagsTitle,
-                      message: l10n.noTaskTagsMessage,
-                    ),
-                  ),
-                ]
-              : List.generate(
-                  _activeTodos.length,
-                  (index) => _buildTodoCard(
-                    _activeTodos[index],
-                    key: ValueKey(_activeTodos[index].id),
-                    index: index,
-                  ),
-                ),
         ),
       ),
+    );
+  }
+
+  Widget _buildTodoList({
+    required Widget header,
+    EdgeInsets? padding,
+    Widget? footer,
+  }) {
+    final l10n = context.l10n;
+    final isEmpty = _activeTodos.isEmpty;
+    return ReorderableListView.builder(
+      physics: const AlwaysScrollableScrollPhysics(),
+      padding: padding,
+      onReorderItem: _reorderActiveTodos,
+      header: header,
+      footer: footer,
+      itemCount: isEmpty ? 1 : _activeTodos.length,
+      itemBuilder: (context, index) {
+        if (isEmpty) {
+          return Padding(
+            key: const ValueKey('empty-task-card'),
+            padding: const EdgeInsets.only(bottom: 10),
+            child: EmptyState(
+              icon: Icons.checklist_outlined,
+              title: l10n.noTaskTagsTitle,
+              message: l10n.noTaskTagsMessage,
+            ),
+          );
+        }
+        final todo = _activeTodos[index];
+        return _buildTodoCard(todo, key: ValueKey(todo.id), index: index);
+      },
     );
   }
 
