@@ -10,6 +10,7 @@ import '../utils/ai_settings_service.dart';
 import '../utils/app_localizations.dart';
 import '../utils/app_preferences_service.dart';
 import '../utils/cloud_sync_service.dart';
+import '../utils/data_backup_service.dart';
 import '../utils/pocketbase_auth_service.dart';
 import '../utils/sync_settings_service.dart';
 import '../widgets/app_components.dart';
@@ -28,6 +29,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final AppPreferencesService _preferencesService =
       AppPreferencesService.instance;
   final PocketBaseAuthService _authService = PocketBaseAuthService();
+  final DataBackupService _backupService = DataBackupService();
 
   late final TextEditingController _serverController;
   late final TextEditingController _usernameController;
@@ -38,6 +40,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   bool _isLoading = true;
   bool _isSubmitting = false;
+  bool _isExportingData = false;
+  bool _isImportingData = false;
   bool _obscurePassword = true;
   bool _obscureAiApiKey = true;
   PocketBaseSession? _session;
@@ -270,6 +274,101 @@ class _SettingsScreenState extends State<SettingsScreen> {
     ).showSnackBar(SnackBar(content: Text(context.l10n.signedOut)));
   }
 
+  Future<void> _exportAllData() async {
+    if (_isExportingData || _isImportingData) {
+      return;
+    }
+    setState(() {
+      _isExportingData = true;
+    });
+    try {
+      final result = await _backupService.exportAllData();
+      if (!mounted || result == null) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(context.l10n.dataExported(result.path))),
+      );
+    } on DataBackupException catch (error) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(context.l10n.localizeError(error.message))),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isExportingData = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _importAllData() async {
+    if (_isExportingData || _isImportingData) {
+      return;
+    }
+    final confirmed =
+        await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: Text(context.l10n.importAllDataTitle),
+            content: Text(context.l10n.importAllDataBody),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(false),
+                child: Text(context.l10n.cancel),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.of(context).pop(true),
+                child: Text(context.l10n.importAllData),
+              ),
+            ],
+          ),
+        ) ??
+        false;
+    if (!confirmed || !mounted) {
+      return;
+    }
+
+    setState(() {
+      _isImportingData = true;
+    });
+    try {
+      final result = await _backupService.importAllData();
+      if (!mounted || result == null) {
+        return;
+      }
+      await showDialog<void>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: Text(context.l10n.dataImported),
+          content: Text(context.l10n.dataImportedBody),
+          actions: [
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: Text(context.l10n.ok),
+            ),
+          ],
+        ),
+      );
+    } on DataBackupException catch (error) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(context.l10n.localizeError(error.message))),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isImportingData = false;
+        });
+      }
+    }
+  }
+
   Widget _panelHeader({
     required IconData icon,
     required Color color,
@@ -310,6 +409,49 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildDataBackupPanel() {
+    final isBusy = _isExportingData || _isImportingData;
+    return AppPanel(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _panelHeader(
+            icon: Icons.inventory_2_outlined,
+            color: AppTheme.copper,
+            title: context.l10n.localBackup,
+            body: context.l10n.localBackupBody,
+          ),
+          const SizedBox(height: AppTheme.space3),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton.icon(
+              onPressed: isBusy ? null : _exportAllData,
+              icon: const Icon(Icons.file_download_outlined),
+              label: Text(
+                _isExportingData
+                    ? context.l10n.exportingData
+                    : context.l10n.exportAllData,
+              ),
+            ),
+          ),
+          const SizedBox(height: AppTheme.space2),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: isBusy ? null : _importAllData,
+              icon: const Icon(Icons.file_upload_outlined),
+              label: Text(
+                _isImportingData
+                    ? context.l10n.importingData
+                    : context.l10n.importAllData,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -461,6 +603,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ],
             ),
           ),
+          const SizedBox(height: AppTheme.space3),
+          _buildDataBackupPanel(),
         ],
       ),
       secondary: ListView(
@@ -744,6 +888,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ],
                     ),
                   ),
+                  const SizedBox(height: 12),
+                  _buildDataBackupPanel(),
                   const SizedBox(height: 12),
                   AppPanel(
                     child: Column(

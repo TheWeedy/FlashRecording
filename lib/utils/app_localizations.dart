@@ -28,6 +28,7 @@ class AppLocalizations {
   }
 
   String get appName => 'Record My Time';
+  String get ok => ui('好的', 'OK', 'OK');
   String get cancel => ui('取消', 'Cancel', 'キャンセル');
   String get save => ui('保存', 'Save', '保存');
   String get delete => ui('删除', 'Delete', '削除');
@@ -365,6 +366,32 @@ class AppLocalizations {
   String get ocrTiles => ui('切片数量', 'OCR tiles', 'OCR タイル数');
   String get preferencesSaved =>
       ui('偏好设置已保存。', 'Preferences saved.', '設定を保存しました。');
+  String get localBackup => ui('本地备份', 'Local backup', 'ローカルバックアップ');
+  String get localBackupBody => ui(
+    '导出或恢复记录、任务、笔记和文件附件。',
+    'Export or restore entries, tasks, notes, and file attachments.',
+    '記録、タスク、ノート、添付ファイルをエクスポートまたは復元します。',
+  );
+  String get exportAllData =>
+      ui('导出全部数据为 ZIP', 'Export all data as ZIP', '全データを ZIP にエクスポート');
+  String get importAllData => ui('导入全部数据', 'Import all data', '全データをインポート');
+  String get exportingData => ui('正在导出...', 'Exporting...', 'エクスポート中...');
+  String get importingData => ui('正在导入...', 'Importing...', 'インポート中...');
+  String dataExported(String path) =>
+      ui('数据已导出：$path', 'Data exported: $path', 'データをエクスポートしました：$path');
+  String get importAllDataTitle =>
+      ui('导入全部数据', 'Import all data', '全データをインポート');
+  String get importAllDataBody => ui(
+    '导入会替换当前设备上的本地记录、笔记、任务和文件附件。请先确认已经保存好当前数据备份。',
+    'Importing will replace local entries, notes, tasks, and file attachments on this device. Make sure the current data is backed up first.',
+    'インポートすると、このデバイスの記録、ノート、タスク、添付ファイルが置き換えられます。先に現在のデータをバックアップしてください。',
+  );
+  String get dataImported => ui('数据已导入', 'Data imported', 'データをインポートしました');
+  String get dataImportedBody => ui(
+    '导入已完成。请重启应用，让所有页面重新加载恢复后的数据。',
+    'Import finished. Restart the app so every page reloads the restored data.',
+    'インポートが完了しました。アプリを再起動して、復元したデータをすべての画面に読み込んでください。',
+  );
   String get aiService => ui('AI 服务', 'AI service', 'AI サービス');
   String get aiServiceBody => ui(
     '默认服务为 DeepSeek，用于洞察、笔记、任务和文件。',
@@ -605,6 +632,11 @@ class AppLocalizations {
       'Tag name cannot be empty.': '标签名不能为空。',
       'A tag with this name already exists.': '同名标签已存在。',
       'The selected file no longer exists.': '所选文件已不存在。',
+      'Could not prepare the backup file.': '无法生成备份文件。',
+      'The backup file is invalid.': '备份文件无效。',
+      'The backup does not contain a database.': '备份中没有数据库。',
+      'The backup database is not compatible.': '备份数据库不兼容。',
+      'Could not restore the backup.': '无法恢复备份。',
     };
     const jaMap = {
       'Add an AI API key in Settings first.': '先に設定で AI API Key を追加してください。',
@@ -627,6 +659,11 @@ class AppLocalizations {
       'Tag name cannot be empty.': 'タグ名は空にできません。',
       'A tag with this name already exists.': '同じ名前のタグがすでに存在します。',
       'The selected file no longer exists.': '選択したファイルは存在しません。',
+      'Could not prepare the backup file.': 'バックアップファイルを作成できませんでした。',
+      'The backup file is invalid.': 'バックアップファイルが無効です。',
+      'The backup does not contain a database.': 'バックアップにデータベースが含まれていません。',
+      'The backup database is not compatible.': 'バックアップデータベースに互換性がありません。',
+      'Could not restore the backup.': 'バックアップを復元できませんでした。',
     };
     if (isChinese) {
       return zhMap[normalized] ?? normalized;

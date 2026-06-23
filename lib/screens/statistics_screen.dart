@@ -177,13 +177,16 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
   }
 
   String _tagForEvent(TimeEvent event) {
-    return _lookups.tagForEvent(event, (key) => switch (key) {
-      'work' => context.l10n.work,
-      'study' => context.l10n.study,
-      'leisure' => context.l10n.leisure,
-      'noTag' => context.l10n.noTag,
-      _ => key,
-    });
+    return _lookups.tagForEvent(
+      event,
+      (key) => switch (key) {
+        'work' => context.l10n.work,
+        'study' => context.l10n.study,
+        'leisure' => context.l10n.leisure,
+        'noTag' => context.l10n.noTag,
+        _ => key,
+      },
+    );
   }
 
   DateTime _dateOnly(DateTime value) =>
@@ -354,6 +357,152 @@ $eventLines
         ? percentages[_touchedPieIndex]
         : percentages.first;
 
+    final content = Column(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        Text(
+          context.l10n.tagShare,
+          style: const TextStyle(
+            fontSize: 20,
+            fontWeight: FontWeight.w700,
+            color: AppTheme.ink,
+          ),
+        ),
+        const SizedBox(height: 12),
+        Center(
+          child: SizedBox.square(
+            dimension: 240,
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.all(8),
+                  child: PieChart(
+                    PieChartData(
+                      startDegreeOffset: -90,
+                      pieTouchData: PieTouchData(
+                        touchCallback: (_, response) {
+                          final nextIndex =
+                              response?.touchedSection?.touchedSectionIndex ??
+                              -1;
+                          if (nextIndex == _touchedPieIndex) {
+                            return;
+                          }
+                          setState(() {
+                            _touchedPieIndex = nextIndex;
+                          });
+                        },
+                      ),
+                      sectionsSpace: 2,
+                      centerSpaceRadius: 50,
+                      centerSpaceColor: AppTheme.surface,
+                      sections: [
+                        for (var i = 0; i < entries.length; i++)
+                          PieChartSectionData(
+                            color: entries[i].color.withValues(
+                              alpha: _touchedPieIndex == i ? 1 : 0.9,
+                            ),
+                            value: displayValues[i],
+                            radius: _touchedPieIndex == i ? 58.0 : 54.0,
+                            title: '',
+                          ),
+                      ],
+                    ),
+                  ),
+                ),
+                IgnorePointer(
+                  child: Container(
+                    width: 86,
+                    height: 86,
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: AppTheme.surface,
+                      borderRadius: BorderRadius.circular(AppTheme.radiusPill),
+                      border: Border.all(
+                        color: centerEntry.color.withValues(alpha: 0.18),
+                      ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: AppTheme.ink.withValues(alpha: 0.045),
+                          blurRadius: 18,
+                          offset: const Offset(0, 8),
+                        ),
+                      ],
+                    ),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        if (touchedEntry != null) ...[
+                          Text(
+                            centerEntry.label,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            textAlign: TextAlign.center,
+                            style: AppTheme.operationText(
+                              const TextStyle(
+                                color: AppTheme.muted,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 5),
+                        ],
+                        Text(
+                          touchedEntry == null
+                              ? _formatCompactDuration(_totalMinutes)
+                              : '${centerPercent.toStringAsFixed(0)}%',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: AppTheme.operationText(
+                            TextStyle(
+                              color: centerEntry.color,
+                              fontSize: 18,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 24),
+        Center(
+          child: Wrap(
+            spacing: 12,
+            runSpacing: 10,
+            alignment: WrapAlignment.center,
+            children: [
+              for (var i = 0; i < entries.length; i++)
+                _LegendChip(entry: entries[i], percent: percentages[i]),
+            ],
+          ),
+        ),
+        if (touchedEntry != null)
+          Container(
+            width: double.infinity,
+            margin: const EdgeInsets.only(top: 12),
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: touchedEntry.color.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(AppTheme.radiusCard),
+            ),
+            child: Text(
+              '${context.l10n.tagStatLine(touchedEntry.label, touchedEntry.count, _formatDuration(touchedEntry.minutes))} · ${centerPercent.toStringAsFixed(0)}%',
+              style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
+            ),
+          ),
+      ],
+    );
+    final panel = AppPanel(
+      borderColor: Colors.transparent,
+      child: content,
+    );
+
     return FadeSlideIn(
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
@@ -364,159 +513,7 @@ $eventLines
             });
           }
         },
-        child: AppPanel(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                context.l10n.tagShare,
-                style: const TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.w700,
-                  color: AppTheme.ink,
-                ),
-              ),
-              const SizedBox(height: 12),
-              Center(
-                child: SizedBox.square(
-                  dimension: 260,
-                  child: Stack(
-                    alignment: Alignment.center,
-                    children: [
-                      Padding(
-                        padding: const EdgeInsets.all(4),
-                        child: PieChart(
-                          PieChartData(
-                            startDegreeOffset: -90,
-                            pieTouchData: PieTouchData(
-                              touchCallback: (_, response) {
-                                final nextIndex =
-                                    response
-                                        ?.touchedSection
-                                        ?.touchedSectionIndex ??
-                                    -1;
-                                if (nextIndex == _touchedPieIndex) {
-                                  return;
-                                }
-                                setState(() {
-                                  _touchedPieIndex = nextIndex;
-                                });
-                              },
-                            ),
-                            sectionsSpace: 1.5,
-                            centerSpaceRadius: 74,
-                            centerSpaceColor: AppTheme.surface,
-                            sections: [
-                              for (var i = 0; i < entries.length; i++)
-                                PieChartSectionData(
-                                  color: entries[i].color.withValues(
-                                    alpha: _touchedPieIndex == i ? 1 : 0.9,
-                                  ),
-                                  value: displayValues[i],
-                                  radius: _touchedPieIndex == i ? 88.0 : 80.0,
-                                  borderSide: BorderSide(
-                                    color: AppTheme.surface.withValues(
-                                      alpha: 0.95,
-                                    ),
-                                    width: 2,
-                                  ),
-                                  title: '',
-                                ),
-                            ],
-                          ),
-                        ),
-                      ),
-                      IgnorePointer(
-                        child: Container(
-                          width: 118,
-                          height: 118,
-                          padding: const EdgeInsets.all(14),
-                          decoration: BoxDecoration(
-                            color: AppTheme.surface,
-                            borderRadius: BorderRadius.circular(
-                              AppTheme.radiusPill,
-                            ),
-                            border: Border.all(
-                              color: centerEntry.color.withValues(alpha: 0.18),
-                            ),
-                            boxShadow: [
-                              BoxShadow(
-                                color: AppTheme.ink.withValues(alpha: 0.045),
-                                blurRadius: 18,
-                                offset: const Offset(0, 8),
-                              ),
-                            ],
-                          ),
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              if (touchedEntry != null) ...[
-                                Text(
-                                  centerEntry.label,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  textAlign: TextAlign.center,
-                                  style: AppTheme.operationText(
-                                    const TextStyle(
-                                      color: AppTheme.muted,
-                                      fontSize: 11,
-                                      fontWeight: FontWeight.w800,
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(height: 5),
-                              ],
-                              Text(
-                                touchedEntry == null
-                                    ? _formatCompactDuration(_totalMinutes)
-                                    : '${centerPercent.toStringAsFixed(0)}%',
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: AppTheme.operationText(
-                                  TextStyle(
-                                    color: centerEntry.color,
-                                    fontSize: 18,
-                                    fontWeight: FontWeight.w900,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              const SizedBox(height: 16),
-              Wrap(
-                spacing: 12,
-                runSpacing: 10,
-                children: [
-                  for (var i = 0; i < entries.length; i++)
-                    _LegendChip(entry: entries[i], percent: percentages[i]),
-                ],
-              ),
-              if (touchedEntry != null)
-                Container(
-                  width: double.infinity,
-                  margin: const EdgeInsets.only(top: 12),
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: touchedEntry.color.withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(AppTheme.radiusCard),
-                  ),
-                  child: Text(
-                    '${context.l10n.tagStatLine(touchedEntry.label, touchedEntry.count, _formatDuration(touchedEntry.minutes))} · ${centerPercent.toStringAsFixed(0)}%',
-                    style: const TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ),
-            ],
-          ),
-        ),
+        child: panel,
       ),
     );
   }
@@ -705,15 +702,14 @@ $eventLines
             if (layoutSizeOf(context) == AppLayoutSize.desktop) {
               return RefreshIndicator(
                 onRefresh: widget.onRefresh,
-                child: SingleChildScrollView(
-                  physics: const AlwaysScrollableScrollPhysics(),
-                  child: SizedBox(
-                    height: constraints.maxHeight,
-                    child: AdaptiveWorkspace(
-                      primaryFlex: 3,
-                      secondaryFlex: 4,
-                      tertiaryFlex: 4,
-                      primary: SingleChildScrollView(
+                child: AdaptiveWorkspace(
+                  primaryFlex: 3,
+                  secondaryFlex: 4,
+                  tertiaryFlex: 4,
+                  primary: CustomScrollView(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    slivers: [
+                      SliverToBoxAdapter(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
@@ -735,12 +731,25 @@ $eventLines
                             _buildSummaryCards(),
                             const SizedBox(height: AppTheme.space3),
                             _buildAiInsightPanel(),
+                            const SizedBox(height: 32),
                           ],
                         ),
                       ),
-                      secondary: SingleChildScrollView(child: _buildPieChart()),
-                      tertiary: SingleChildScrollView(child: _buildTimeline()),
-                    ),
+                    ],
+                  ),
+                  secondary: CustomScrollView(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    slivers: [
+                      SliverToBoxAdapter(child: _buildPieChart()),
+                      const SliverToBoxAdapter(child: SizedBox(height: 32)),
+                    ],
+                  ),
+                  tertiary: CustomScrollView(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    slivers: [
+                      SliverToBoxAdapter(child: _buildTimeline()),
+                      const SliverToBoxAdapter(child: SizedBox(height: 32)),
+                    ],
                   ),
                 ),
               );

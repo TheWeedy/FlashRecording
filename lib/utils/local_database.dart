@@ -11,14 +11,17 @@ class LocalDatabase {
 
   Database? _database;
 
+  Future<String> get databasePath async {
+    final databasesPath = await getDatabasesPath();
+    return p.join(databasesPath, _databaseName);
+  }
+
   Future<Database> get database async {
     if (_database != null) {
       return _database!;
     }
 
-    final databasesPath = await getDatabasesPath();
-    final databasePath = p.join(databasesPath, _databaseName);
-
+    final databasePath = await this.databasePath;
     _database = await openDatabase(
       databasePath,
       version: _databaseVersion,
@@ -109,6 +112,15 @@ class LocalDatabase {
     );
 
     return _database!;
+  }
+
+  Future<void> close() async {
+    final database = _database;
+    if (database == null) {
+      return;
+    }
+    _database = null;
+    await database.close();
   }
 
   Future<void> _createTables(Database db) async {

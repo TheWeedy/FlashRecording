@@ -73,10 +73,12 @@ class CloudSyncService {
   bool _forceNextSync = false;
   DateTime? _lastAttemptAt;
 
-  void scheduleSync({bool force = false}) {
+  void scheduleSync() {
     unawaited(_settingsService.markLocalDirty());
     _pendingSync = true;
-    _forceNextSync = _forceNextSync || force;
+    // Local edits should upload after the debounce window even if a pull just
+    // ran; otherwise the minimum interval makes sync look stalled.
+    _forceNextSync = true;
     _scheduleDrain(_debounceDuration);
   }
 
@@ -202,6 +204,8 @@ class CloudSyncService {
         } else if (remoteChangedAt.isAfter(localChangedAt)) {
           await _applyRemoteRecord(remote);
           changedLocal = true;
+        } else if (!_recordsHaveSameContent(local, remote)) {
+          recordsToPush.add(_PushJob(local, remote: remote));
         }
       }
 
@@ -489,14 +493,38 @@ class CloudSyncService {
   }
 
   Map<String, dynamic> _remoteBody(String userId, _SyncRecord local) {
+    final deletedAt = local.deletedAt == null
+        ? null
+        : _remoteDateString(local.deletedAt!);
     return <String, dynamic>{
       'owner': userId,
       'entity_type': local.entityType,
       'local_id': local.localId,
       'payload_json': jsonEncode(local.payload),
-      'updated_at': local.updatedAt.toIso8601String(),
-      'deleted_at': local.deletedAt?.toIso8601String(),
+      'updated_at': _remoteDateString(local.updatedAt),
+      'deleted_at': deletedAt,
     };
+  }
+
+  String _remoteDateString(DateTime value) => value.toUtc().toIso8601String();
+
+  bool _recordsHaveSameContent(_SyncRecord local, _SyncRecord remote) {
+    if ((local.deletedAt == null) != (remote.deletedAt == null)) {
+      return false;
+    }
+    return jsonEncode(_canonicalJson(local.payload)) ==
+        jsonEncode(_canonicalJson(remote.payload));
+  }
+
+  Object? _canonicalJson(Object? value) {
+    if (value is Map) {
+      final keys = value.keys.map((key) => '$key').toList()..sort();
+      return {for (final key in keys) key: _canonicalJson(value[key])};
+    }
+    if (value is Iterable) {
+      return value.map(_canonicalJson).toList();
+    }
+    return value;
   }
 
   Future<_RemoteSyncRecord?> _findRemoteRecord(
@@ -768,14 +796,17 @@ class _RemoteSyncRecord extends _SyncRecord {
     final payload = decoded is Map
         ? Map<String, dynamic>.from(decoded)
         : <String, dynamic>{};
-    final deletedAt = DateTime.tryParse('${record.data['deleted_at'] ?? ''}');
+    final deletedAt = _parseSyncDate(record.data['deleted_at']);
+    final payloadUpdatedAt = _parseSyncDate(payload['updated_at']);
+    final remoteUpdatedAt = _parseSyncDate(record.data['updated_at']);
     return _RemoteSyncRecord(
       recordId: record.id,
       entityType: '${record.data['entity_type'] ?? ''}',
       localId: '${record.data['local_id'] ?? ''}',
       payload: payload,
       updatedAt:
-          DateTime.tryParse('${record.data['updated_at'] ?? ''}') ??
+          payloadUpdatedAt ??
+          remoteUpdatedAt ??
           DateTime.fromMillisecondsSinceEpoch(0),
       deletedAt: deletedAt,
     );
@@ -784,4 +815,12 @@ class _RemoteSyncRecord extends _SyncRecord {
   final String? recordId;
 
   bool get isDeleted => deletedAt != null;
+}
+
+DateTime? _parseSyncDate(Object? value) {
+  final raw = '${value ?? ''}'.trim();
+  if (raw.isEmpty) {
+    return null;
+  }
+  return DateTime.tryParse(raw);
 }

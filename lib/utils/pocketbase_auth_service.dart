@@ -72,9 +72,18 @@ class PocketBaseAuthService {
 
     final pb = await createClient(settings.serverUrl);
     final record = pb.authStore.record;
+    final username = settings.username.trim();
+    if (pb.authStore.isValid && !_recordMatchesUsername(record, username)) {
+      pb.authStore.clear();
+      return PocketBaseSession(
+        serverUrl: normalizeServerUrl(settings.serverUrl),
+        username: username,
+        isLoggedIn: false,
+      );
+    }
     return PocketBaseSession(
       serverUrl: normalizeServerUrl(settings.serverUrl),
-      username: settings.username.trim(),
+      username: username,
       userId: record?.id,
       isLoggedIn: pb.authStore.isValid,
     );
@@ -163,6 +172,19 @@ class PocketBaseAuthService {
       '_',
     );
     return '$normalized@recordmytime.local';
+  }
+
+  bool _recordMatchesUsername(RecordModel? record, String username) {
+    if (record == null) {
+      return false;
+    }
+    final expectedEmail = identityFromUsername(username).toLowerCase();
+    final email = '${record.data['email'] ?? ''}'.trim().toLowerCase();
+    final recordUsername = '${record.data['username'] ?? ''}'
+        .trim()
+        .toLowerCase();
+    final normalizedUsername = username.trim().toLowerCase();
+    return email == expectedEmail || recordUsername == normalizedUsername;
   }
 
   PocketBaseAuthException _mapLoginException(ClientException error) {
