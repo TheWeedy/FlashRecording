@@ -5,37 +5,58 @@ class AppTheme {
 
   static const fontSerif = 'NotoSerif';
   static const fontSongti = 'NotoSerifSC';
+  static const fontSans = 'Roboto';
   static const fontFallback = <String>[fontSongti, 'serif'];
+  static const fontSansFallback = <String>[fontSongti, 'sans-serif'];
 
-  static const background = Color(0xFFF7F5EF);
+  static const background = Color(0xFFF7F4EF);
   static const surface = Color(0xFFFFFFFF);
-  static const raisedSurface = Color(0xFFFBFAF7);
-  static const ink = Color(0xFF15171A);
-  static const muted = Color(0xFF687076);
-  static const faint = Color(0xFF9A9287);
-  static const border = Color(0xFFDED8CE);
-  static const primary = Color(0xFF2F5D50);
-  static const primarySoft = Color(0xFFE6EEE9);
-  static const copper = Color(0xFFB66A4B);
-  static const copperSoft = Color(0xFFF3E3DA);
-  static const steel = Color(0xFF356B8C);
-  static const steelSoft = Color(0xFFE3EDF2);
-  static const success = Color(0xFF3E8F6B);
-  static const warning = Color(0xFFC78A2C);
-  static const danger = Color(0xFFB94A48);
+  static const raisedSurface = Color(0xFFFFFAF2);
+  static const ink = Color(0xFF182126);
+  static const muted = Color(0xFF687277);
+  static const faint = Color(0xFF9BA3A5);
+  static const border = Color(0xFFE7DED1);
+  static const primary = Color(0xFF256C6A);
+  static const primarySoft = Color(0xFFE7F4EF);
+  static const copper = Color(0xFFE37D50);
+  static const copperSoft = Color(0xFFFFECE0);
+  static const steel = Color(0xFF4E6FB5);
+  static const steelSoft = Color(0xFFEAF0FF);
+  static const sunshine = Color(0xFFF3C84B);
+  static const sunshineSoft = Color(0xFFFFF6CF);
+  static const success = Color(0xFF37966F);
+  static const warning = Color(0xFFD49325);
+  static const danger = Color(0xFFD35261);
 
-  static const radiusCard = 8.0;
-  static const radiusControl = 12.0;
-  static const radiusSheet = 16.0;
-  static const pagePadding = 18.0;
-  static const fast = Duration(milliseconds: 180);
-  static const medium = Duration(milliseconds: 320);
+  static const radiusCard = 18.0;
+  static const radiusControl = 14.0;
+  static const radiusSheet = 24.0;
+  static const radiusPill = 999.0;
+  static const pagePadding = 16.0;
+  static const space1 = 6.0;
+  static const space2 = 10.0;
+  static const space3 = 16.0;
+  static const space4 = 22.0;
+  static const space5 = 30.0;
+  static const space6 = 42.0;
+  static const fast = Duration(milliseconds: 150);
+  static const medium = Duration(milliseconds: 260);
   static const slow = Duration(milliseconds: 520);
+  static const motionCurve = Curves.easeOutCubic;
+  static const motionOffset = Offset(0, 0.035);
 
   static final cardShadow = <BoxShadow>[
     BoxShadow(
-      color: ink.withValues(alpha: 0.06),
+      color: ink.withValues(alpha: 0.055),
       blurRadius: 20,
+      offset: const Offset(0, 10),
+    ),
+  ];
+
+  static final liftShadow = <BoxShadow>[
+    BoxShadow(
+      color: primary.withValues(alpha: 0.18),
+      blurRadius: 22,
       offset: const Offset(0, 10),
     ),
   ];
@@ -68,7 +89,7 @@ class AppTheme {
         elevation: 0,
         scrolledUnderElevation: 0,
         titleTextStyle: textTheme.titleLarge?.copyWith(
-          fontSize: 22,
+          fontSize: 20,
           fontWeight: FontWeight.w700,
           color: ink,
         ),
@@ -94,9 +115,25 @@ class AppTheme {
         ),
         contentTextStyle: textTheme.bodyMedium?.copyWith(color: muted),
       ),
+      popupMenuTheme: PopupMenuThemeData(
+        color: surface,
+        surfaceTintColor: Colors.transparent,
+        elevation: 0,
+        textStyle: textTheme.bodyMedium?.copyWith(
+          color: ink,
+          fontWeight: FontWeight.w700,
+        ),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(radiusControl),
+          side: const BorderSide(color: border),
+        ),
+      ),
       bottomSheetTheme: const BottomSheetThemeData(
         backgroundColor: surface,
         surfaceTintColor: Colors.transparent,
+        showDragHandle: true,
+        dragHandleColor: border,
+        dragHandleSize: Size(42, 4),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.vertical(
             top: Radius.circular(radiusSheet),
@@ -105,9 +142,13 @@ class AppTheme {
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
-        fillColor: raisedSurface,
+        fillColor: surface,
         labelStyle: const TextStyle(color: muted, fontWeight: FontWeight.w600),
         hintStyle: const TextStyle(color: faint),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 12,
+          vertical: 12,
+        ),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(radiusControl),
           borderSide: const BorderSide(color: border),
@@ -125,7 +166,8 @@ class AppTheme {
         style: FilledButton.styleFrom(
           backgroundColor: primary,
           foregroundColor: Colors.white,
-          minimumSize: const Size(48, 48),
+          minimumSize: const Size(44, 42),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(radiusControl),
           ),
@@ -137,7 +179,8 @@ class AppTheme {
           backgroundColor: primary,
           foregroundColor: Colors.white,
           elevation: 0,
-          minimumSize: const Size(48, 48),
+          minimumSize: const Size(44, 42),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(radiusControl),
           ),
@@ -148,7 +191,8 @@ class AppTheme {
         style: OutlinedButton.styleFrom(
           foregroundColor: primary,
           side: const BorderSide(color: border),
-          minimumSize: const Size(48, 48),
+          minimumSize: const Size(44, 42),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(radiusControl),
           ),
@@ -165,8 +209,13 @@ class AppTheme {
         backgroundColor: primary,
         foregroundColor: Colors.white,
         elevation: 0,
+        focusElevation: 0,
+        hoverElevation: 0,
+        highlightElevation: 0,
+        sizeConstraints: BoxConstraints.tightFor(width: 58, height: 58),
+        smallSizeConstraints: BoxConstraints.tightFor(width: 46, height: 46),
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.all(Radius.circular(18)),
+          borderRadius: BorderRadius.all(Radius.circular(radiusControl)),
         ),
       ),
       bottomNavigationBarTheme: const BottomNavigationBarThemeData(
@@ -174,9 +223,9 @@ class AppTheme {
         selectedItemColor: primary,
         unselectedItemColor: muted,
         type: BottomNavigationBarType.fixed,
-        showUnselectedLabels: true,
+        showUnselectedLabels: false,
         elevation: 0,
-        selectedLabelStyle: TextStyle(fontWeight: FontWeight.w700),
+        selectedLabelStyle: TextStyle(fontWeight: FontWeight.w800),
         unselectedLabelStyle: TextStyle(fontWeight: FontWeight.w600),
       ),
       snackBarTheme: SnackBarThemeData(
@@ -211,6 +260,23 @@ class AppTheme {
           ),
         ),
       ),
+      chipTheme: ChipThemeData(
+        backgroundColor: raisedSurface,
+        selectedColor: primarySoft,
+        disabledColor: raisedSurface,
+        labelStyle: textTheme.labelLarge?.copyWith(
+          color: muted,
+          fontWeight: FontWeight.w800,
+        ),
+        secondaryLabelStyle: textTheme.labelLarge?.copyWith(
+          color: primary,
+          fontWeight: FontWeight.w900,
+        ),
+        side: const BorderSide(color: border),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(radiusControl),
+        ),
+      ),
     );
   }
 
@@ -239,4 +305,10 @@ class AppTheme {
       labelSmall: apply(theme.labelSmall),
     );
   }
+
+  static TextStyle? operationText(TextStyle? style) => style?.copyWith(
+    fontFamily: fontSans,
+    fontFamilyFallback: fontSansFallback,
+    letterSpacing: 0,
+  );
 }

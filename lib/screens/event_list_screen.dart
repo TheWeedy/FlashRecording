@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../models/time_event.dart';
@@ -6,6 +8,7 @@ import '../theme/app_theme.dart';
 import '../utils/app_localizations.dart';
 import '../utils/todo_persistence.dart';
 import '../widgets/app_components.dart';
+import '../widgets/responsive_scaffold.dart';
 import 'settings_screen.dart';
 
 class EventListScreen extends StatefulWidget {
@@ -13,7 +16,9 @@ class EventListScreen extends StatefulWidget {
     super.key,
     required this.events,
     required this.onAdd,
+    required this.onRefresh,
     required this.onDeleteSelected,
+    required this.onPerformDelete,
     required this.isSelectionMode,
     required this.selectedIds,
     required this.onToggleSelectionMode,
@@ -21,7 +26,9 @@ class EventListScreen extends StatefulWidget {
 
   final List<TimeEvent> events;
   final void Function(TimeEvent) onAdd;
+  final Future<void> Function() onRefresh;
   final void Function(Set<String>) onDeleteSelected;
+  final Future<void> Function() onPerformDelete;
   final bool isSelectionMode;
   final Set<String> selectedIds;
   final VoidCallback onToggleSelectionMode;
@@ -40,9 +47,9 @@ class _EventListScreenState extends State<EventListScreen> {
 
   List<TodoItem> _availableTodos = [];
   Map<String, Color> _todoColorMap = {};
-  bool _isAddSheetVisible = false;
   String? _entryLinkedTodoId;
   int _entrySuggestedMinutes = 0;
+  String? _focusedEventId;
 
   @override
   void initState() {
@@ -70,6 +77,11 @@ class _EventListScreenState extends State<EventListScreen> {
       _availableTodos = todos;
       _todoColorMap = colorMap;
     });
+  }
+
+  Future<void> _refresh() async {
+    await widget.onRefresh();
+    await _loadAvailableTodos();
   }
 
   EventType _typeForTodoId(String? todoId) {
@@ -122,6 +134,22 @@ class _EventListScreenState extends State<EventListScreen> {
   int get _todayMinutes =>
       _todayEvents.fold(0, (sum, event) => sum + event.totalMinutes);
 
+  TimeEvent? get _focusedEvent {
+    if (widget.events.isEmpty) {
+      return null;
+    }
+    final focusedId = _focusedEventId;
+    if (focusedId == null) {
+      return widget.events.first;
+    }
+    for (final event in widget.events) {
+      if (event.id == focusedId) {
+        return event;
+      }
+    }
+    return widget.events.first;
+  }
+
   Future<void> _showSettingsDialog() async {
     await Navigator.of(
       context,
@@ -148,18 +176,49 @@ class _EventListScreenState extends State<EventListScreen> {
       _entryMinutesController.text = '${suggestion.minutes}';
       _entryLinkedTodoId = defaultTodoId;
       _entrySuggestedMinutes = suggestion.hours * 60 + suggestion.minutes;
-      _isAddSheetVisible = true;
     });
+    if (!mounted) {
+      return;
+    }
+    await showAppActionSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (sheetContext) {
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            return Padding(
+              padding: const EdgeInsets.fromLTRB(18, 0, 18, 18),
+              child: _AddEntrySheet(
+                availableTodos: _availableTodos,
+                linkedTodoId: _entryLinkedTodoId,
+                suggestedLabel:
+                    'Suggested ${_formatDuration(_entrySuggestedMinutes)}',
+                descriptionController: _entryDescriptionController,
+                noteController: _entryNoteController,
+                hoursController: _entryHoursController,
+                minutesController: _entryMinutesController,
+                onLinkedTodoChanged: (value) {
+                  setState(() {
+                    _entryLinkedTodoId = value;
+                  });
+                  setSheetState(() {});
+                },
+                onCancel: () => Navigator.of(sheetContext).pop(),
+                onSubmit: () async {
+                  final saved = await _submitAddEvent();
+                  if (saved && sheetContext.mounted) {
+                    Navigator.of(sheetContext).pop();
+                  }
+                },
+              ),
+            );
+          },
+        );
+      },
+    );
   }
 
-  void _closeAddEventSheet() {
-    FocusScope.of(context).unfocus();
-    setState(() {
-      _isAddSheetVisible = false;
-    });
-  }
-
-  Future<void> _submitAddEvent() async {
+  Future<bool> _submitAddEvent() async {
     int hours = int.tryParse(_entryHoursController.text.trim()) ?? 0;
     int minutes = int.tryParse(_entryMinutesController.text.trim()) ?? 0;
 
@@ -167,7 +226,7 @@ class _EventListScreenState extends State<EventListScreen> {
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text(context.l10n.minutesRangeError)));
-      return;
+      return false;
     }
     if (hours < 0) {
       hours = 0;
@@ -179,24 +238,24 @@ class _EventListScreenState extends State<EventListScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(context.l10n.entryDescriptionRequired)),
       );
-      return;
+      return false;
     }
     if (_entryLinkedTodoId == null) {
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text(context.l10n.chooseTaskTag)));
-      return;
+      return false;
     }
 
     final linkedTodo = await _todoService.findTodoById(_entryLinkedTodoId!);
     if (!mounted) {
-      return;
+      return false;
     }
     if (linkedTodo == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(context.l10n.selectedTaskTagMissing)),
       );
-      return;
+      return false;
     }
 
     final recordMode = hours == 0 && minutes == 0
@@ -217,53 +276,8 @@ class _EventListScreenState extends State<EventListScreen> {
     );
 
     widget.onAdd(newEvent);
-    _closeAddEventSheet();
     await _loadAvailableTodos();
-  }
-
-  Widget _buildAddEventOverlay(BuildContext context) {
-    return Stack(
-      children: [
-        Positioned.fill(
-          child: GestureDetector(
-            onTap: _closeAddEventSheet,
-            child: ColoredBox(color: AppTheme.ink.withValues(alpha: 0.48)),
-          ),
-        ),
-        Positioned(
-          left: 0,
-          right: 0,
-          bottom: 0,
-          child: AnimatedPadding(
-            duration: AppTheme.fast,
-            curve: Curves.easeOutCubic,
-            padding: EdgeInsets.only(
-              bottom: MediaQuery.viewInsetsOf(context).bottom,
-            ),
-            child: SafeArea(
-              top: false,
-              child: _AddEntrySheet(
-                availableTodos: _availableTodos,
-                linkedTodoId: _entryLinkedTodoId,
-                suggestedLabel:
-                    'Suggested ${_formatDuration(_entrySuggestedMinutes)}',
-                descriptionController: _entryDescriptionController,
-                noteController: _entryNoteController,
-                hoursController: _entryHoursController,
-                minutesController: _entryMinutesController,
-                onLinkedTodoChanged: (value) {
-                  setState(() {
-                    _entryLinkedTodoId = value;
-                  });
-                },
-                onCancel: _closeAddEventSheet,
-                onSubmit: _submitAddEvent,
-              ),
-            ),
-          ),
-        ),
-      ],
-    );
+    return true;
   }
 
   Color _colorForEvent(TimeEvent event) {
@@ -308,6 +322,14 @@ class _EventListScreenState extends State<EventListScreen> {
     return '$date · $time';
   }
 
+  String _entriesHeaderMeta() {
+    return context.l10n.ui(
+      '今天 ${_todayEvents.length} 条 · ${_formatDuration(_todayMinutes)}',
+      'Today ${_todayEvents.length} · ${_formatDuration(_todayMinutes)}',
+      '今日 ${_todayEvents.length} 件 · ${_formatDuration(_todayMinutes)}',
+    );
+  }
+
   void _toggleEventSelection(TimeEvent event) {
     final next = Set<String>.from(widget.selectedIds);
     if (next.contains(event.id)) {
@@ -316,6 +338,9 @@ class _EventListScreenState extends State<EventListScreen> {
       next.add(event.id);
     }
     widget.onDeleteSelected(next);
+    if (next.isEmpty && widget.isSelectionMode) {
+      widget.onToggleSelectionMode();
+    }
   }
 
   Future<void> _showEntryDetails(TimeEvent event) async {
@@ -330,128 +355,277 @@ class _EventListScreenState extends State<EventListScreen> {
     );
   }
 
+  Widget _buildEntryList({required bool desktop}) {
+    if (widget.events.isEmpty) {
+      return FadeSlideIn(
+        delay: const Duration(milliseconds: 80),
+        child: EmptyState(
+          icon: Icons.view_agenda_outlined,
+          title: context.l10n.noEntriesTitle,
+          message: context.l10n.noEntriesMessage,
+        ),
+      );
+    }
+    return Column(
+      children: List.generate(widget.events.length, (index) {
+        final event = widget.events[index];
+        final isFocused = desktop && _focusedEvent?.id == event.id;
+        return FadeSlideIn(
+          delay: Duration(milliseconds: 30 * (index > 8 ? 8 : index)),
+          child: Padding(
+            padding: const EdgeInsets.only(bottom: 10),
+            child: _EntryCard(
+              event: event,
+              tag: _tagForEvent(event),
+              color: _colorForEvent(event),
+              timestamp: _formatDateTime(event.addedAt),
+              selected: isFocused || widget.selectedIds.contains(event.id),
+              selectionMode: widget.isSelectionMode,
+              onTap: widget.isSelectionMode
+                  ? () => _toggleEventSelection(event)
+                  : desktop
+                  ? () => setState(() => _focusedEventId = event.id)
+                  : () => _showEntryDetails(event),
+              onLongPress: widget.isSelectionMode
+                  ? null
+                  : () {
+                      widget.onDeleteSelected({event.id});
+                      widget.onToggleSelectionMode();
+                    },
+            ),
+          ),
+        );
+      }),
+    );
+  }
+
+  Widget _buildSummaryTiles() {
+    return Row(
+      children: [
+        Expanded(
+          child: MetricTile(
+            label: context.l10n.entriesTitle,
+            value: '${_todayEvents.length}',
+            icon: Icons.today_outlined,
+            accent: AppTheme.primary,
+          ),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: MetricTile(
+            label: context.l10n.duration,
+            value: _formatDuration(_todayMinutes),
+            icon: Icons.timelapse,
+            accent: AppTheme.steel,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildDesktopDetailPanel() {
+    final event = _focusedEvent;
+    if (event == null) {
+      return EmptyState(
+        icon: Icons.receipt_long_outlined,
+        title: context.l10n.entryDetail,
+        message: context.l10n.noEntriesMessage,
+      );
+    }
+    final color = _colorForEvent(event);
+    final tag = _tagForEvent(event);
+    final theme = Theme.of(context).textTheme;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        SectionHeader(
+          eyebrow: context.l10n.ui('当前记录', 'Selected entry', '選択中の記録'),
+          title: context.l10n.entryDetail,
+          description: _formatDateTime(event.addedAt),
+        ),
+        const SizedBox(height: AppTheme.space3),
+        _buildSummaryTiles(),
+        const SizedBox(height: AppTheme.space3),
+        AppPanel(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  AppChip(
+                    icon: Icons.sell_outlined,
+                    label: tag,
+                    color: color,
+                    maxWidth: 220,
+                  ),
+                  AppChip(
+                    icon: Icons.timelapse,
+                    label: event.displayDuration,
+                    color: AppTheme.steel,
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              _DetailBlock(
+                label: context.l10n.description,
+                child: SelectableText(
+                  event.description,
+                  style: theme.titleMedium?.copyWith(
+                    color: AppTheme.ink,
+                    fontWeight: FontWeight.w700,
+                    height: 1.42,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 14),
+              _DetailBlock(
+                label: context.l10n.note,
+                child: SelectableText(
+                  event.note.isEmpty ? context.l10n.noNoteAttached : event.note,
+                  style: theme.bodyMedium?.copyWith(
+                    color: event.note.isEmpty ? AppTheme.faint : AppTheme.ink,
+                    height: 1.5,
+                    fontStyle: event.note.isEmpty
+                        ? FontStyle.italic
+                        : FontStyle.normal,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildDesktopLayout(int selectedCount) {
+    return AdaptiveWorkspace(
+      primaryFlex: 5,
+      secondaryFlex: 4,
+      primary: RefreshIndicator(
+        onRefresh: _refresh,
+        child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          children: [
+            SectionHeader(
+              eyebrow: context.l10n.entriesEyebrow,
+              title: widget.isSelectionMode
+                  ? context.l10n.selectedCount(selectedCount)
+                  : context.l10n.navEntries,
+              description: widget.isSelectionMode
+                  ? context.l10n.ui(
+                      '选择要从本地记录中删除的条目。',
+                      'Choose the records you want to remove from your local ledger.',
+                    )
+                  : _entriesHeaderMeta(),
+              showContext: false,
+              showCompactMeta: true,
+              trailing: widget.isSelectionMode
+                  ? QuietIconButton(
+                      tooltip: context.l10n.clearSelection,
+                      icon: Icons.close,
+                      onPressed: widget.onToggleSelectionMode,
+                      color: AppTheme.danger,
+                    )
+                  : QuietIconButton(
+                      tooltip: context.l10n.settings,
+                      icon: Icons.tune,
+                      onPressed: _showSettingsDialog,
+                    ),
+            ),
+            const SizedBox(height: AppTheme.space3),
+            _buildEntryList(desktop: true),
+          ],
+        ),
+      ),
+      secondary: SingleChildScrollView(child: _buildDesktopDetailPanel()),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final selectedCount = widget.selectedIds.length;
+    final desktop = isDesktopLayout(context);
 
     return PopScope(
-      canPop: !_isAddSheetVisible,
-      onPopInvokedWithResult: (didPop, result) {
-        if (!didPop && _isAddSheetVisible) {
-          _closeAddEventSheet();
-        }
-      },
+      canPop: true,
       child: Scaffold(
         body: Stack(
           children: [
             SafeArea(
-              child: ListView(
-                padding: const EdgeInsets.fromLTRB(
-                  AppTheme.pagePadding,
-                  18,
-                  AppTheme.pagePadding,
-                  104,
-                ),
-                children: [
-                  PageIntro(
-                    eyebrow: context.l10n.entriesEyebrow,
-                    title: widget.isSelectionMode
-                        ? context.l10n.selectedCount(selectedCount)
-                        : context.l10n.navEntries,
-                    description: widget.isSelectionMode
-                        ? context.l10n.ui(
-                            '选择要从本地记录中删除的条目。',
-                            'Choose the records you want to remove from your local ledger.',
-                          )
-                        : context.l10n.entriesDescription,
-                    trailing: widget.isSelectionMode
-                        ? QuietIconButton(
-                            tooltip: context.l10n.clearSelection,
-                            icon: Icons.close,
-                            onPressed: widget.onToggleSelectionMode,
-                            color: AppTheme.danger,
-                          )
-                        : QuietIconButton(
-                            tooltip: context.l10n.settings,
-                            icon: Icons.tune,
-                            onPressed: _showSettingsDialog,
+              child: desktop
+                  ? _buildDesktopLayout(selectedCount)
+                  : RefreshIndicator(
+                      onRefresh: _refresh,
+                      child: ListView(
+                        physics: const AlwaysScrollableScrollPhysics(),
+                        padding: const EdgeInsets.fromLTRB(
+                          AppTheme.pagePadding,
+                          14,
+                          AppTheme.pagePadding,
+                          104,
+                        ),
+                        children: [
+                          PageIntro(
+                            eyebrow: context.l10n.entriesEyebrow,
+                            title: widget.isSelectionMode
+                                ? context.l10n.selectedCount(selectedCount)
+                                : context.l10n.navEntries,
+                            description: widget.isSelectionMode
+                                ? context.l10n.ui(
+                                    '选择要从本地记录中删除的条目。',
+                                    'Choose the records you want to remove from your local ledger.',
+                                  )
+                                : _entriesHeaderMeta(),
+                            showContext: false,
+                            showCompactMeta: true,
+                            trailing: widget.isSelectionMode
+                                ? QuietIconButton(
+                                    tooltip: context.l10n.clearSelection,
+                                    icon: Icons.close,
+                                    onPressed: widget.onToggleSelectionMode,
+                                    color: AppTheme.danger,
+                                  )
+                                : QuietIconButton(
+                                    tooltip: context.l10n.settings,
+                                    icon: Icons.tune,
+                                    onPressed: _showSettingsDialog,
+                                  ),
                           ),
-                  ),
-                  const SizedBox(height: 18),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: MetricTile(
-                          label: context.l10n.entriesTitle,
-                          value: '${_todayEvents.length}',
-                          icon: Icons.today_outlined,
-                          accent: AppTheme.primary,
-                        ),
+                          const SizedBox(height: 12),
+                          _buildSummaryTiles(),
+                          const SizedBox(height: 10),
+                          _buildEntryList(desktop: false),
+                        ],
                       ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: MetricTile(
-                          label: context.l10n.duration,
-                          value: _formatDuration(_todayMinutes),
-                          icon: Icons.timelapse,
-                          accent: AppTheme.steel,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                  if (widget.events.isEmpty)
-                    FadeSlideIn(
-                      delay: const Duration(milliseconds: 80),
-                      child: EmptyState(
-                        icon: Icons.view_agenda_outlined,
-                        title: context.l10n.noEntriesTitle,
-                        message: context.l10n.noEntriesMessage,
-                      ),
-                    )
-                  else
-                    ...List.generate(widget.events.length, (index) {
-                      final event = widget.events[index];
-                      return FadeSlideIn(
-                        delay: Duration(
-                          milliseconds: 30 * (index > 8 ? 8 : index),
-                        ),
-                        child: Padding(
-                          padding: const EdgeInsets.only(bottom: 10),
-                          child: _EntryCard(
-                            event: event,
-                            tag: _tagForEvent(event),
-                            color: _colorForEvent(event),
-                            timestamp: _formatDateTime(event.addedAt),
-                            selected: widget.selectedIds.contains(event.id),
-                            selectionMode: widget.isSelectionMode,
-                            onTap: widget.isSelectionMode
-                                ? () => _toggleEventSelection(event)
-                                : () => _showEntryDetails(event),
-                            onLongPress: widget.isSelectionMode
-                                ? null
-                                : () {
-                                    widget.onDeleteSelected({event.id});
-                                    widget.onToggleSelectionMode();
-                                  },
-                          ),
-                        ),
-                      );
-                    }),
-                ],
-              ),
+                    ),
             ),
-            if (_isAddSheetVisible) _buildAddEventOverlay(context),
           ],
         ),
-        floatingActionButtonAnimator: FloatingActionButtonAnimator.scaling,
-        floatingActionButton: widget.isSelectionMode || _isAddSheetVisible
-            ? null
-            : FloatingActionButton(
-                onPressed: _openAddEventSheet,
-                tooltip: context.l10n.addEntryTooltip,
-                child: const Icon(Icons.add),
-              ),
+        floatingActionButtonLocation: const AppTuckedEndFabLocation(),
+        floatingActionButton: ContextualActionFab(
+          heroTag: 'entries-contextual-fab',
+          tooltip: widget.isSelectionMode
+              ? context.l10n.delete
+              : context.l10n.addEntryTooltip,
+          icon: widget.isSelectionMode ? Icons.delete : Icons.add,
+          isDestructive: widget.isSelectionMode,
+          onPressed: widget.isSelectionMode
+              ? () => unawaited(widget.onPerformDelete())
+              : _openAddEventSheet,
+          actions: widget.isSelectionMode
+              ? [
+                  ContextualFabAction(
+                    icon: Icons.close,
+                    label: context.l10n.clearSelection,
+                    tooltip: context.l10n.clearSelection,
+                    onPressed: widget.onToggleSelectionMode,
+                  ),
+                ]
+              : const [],
+        ),
       ),
     );
   }
@@ -488,179 +662,155 @@ class _AddEntrySheet extends StatelessWidget {
     final media = MediaQuery.of(context);
     final availableHeight =
         media.size.height - media.padding.top - media.viewInsets.bottom - 16;
-    final sheetHeight = (availableHeight * 0.78).clamp(440.0, 720.0).toDouble();
+    final maxHeight = (availableHeight * 0.92).clamp(0.0, 680.0).toDouble();
 
-    return SizedBox(
-      height: sheetHeight,
-      child: Material(
-        color: AppTheme.surface,
-        surfaceTintColor: Colors.transparent,
-        shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(
-            top: Radius.circular(AppTheme.radiusSheet),
+    return ConstrainedBox(
+      constraints: BoxConstraints(maxHeight: maxHeight),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            context.l10n.addEntry,
+            style: theme.headlineSmall?.copyWith(
+              color: AppTheme.ink,
+              fontWeight: FontWeight.w700,
+            ),
           ),
-        ),
-        clipBehavior: Clip.antiAlias,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(18, 10, 18, 16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Center(
-                child: Container(
-                  width: 42,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: AppTheme.border,
-                    borderRadius: BorderRadius.circular(999),
+          const SizedBox(height: 8),
+          AppChip(
+            icon: Icons.auto_awesome,
+            color: AppTheme.copper,
+            label: suggestedLabel,
+          ),
+          const SizedBox(height: 12),
+          Flexible(
+            child: SingleChildScrollView(
+              keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    context.l10n.taskTag,
+                    style: theme.labelLarge?.copyWith(
+                      color: AppTheme.muted,
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
-                ),
-              ),
-              const SizedBox(height: 18),
-              Text(
-                context.l10n.addEntry,
-                style: theme.headlineSmall?.copyWith(
-                  color: AppTheme.ink,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              const SizedBox(height: 8),
-              AppChip(
-                icon: Icons.auto_awesome,
-                color: AppTheme.copper,
-                label: suggestedLabel,
-              ),
-              const SizedBox(height: 12),
-              Flexible(
-                child: SingleChildScrollView(
-                  keyboardDismissBehavior:
-                      ScrollViewKeyboardDismissBehavior.onDrag,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: availableTodos.map((todo) {
+                      final selected = linkedTodoId == todo.id;
+                      return ChoiceChip(
+                        selected: selected,
+                        showCheckmark: false,
+                        label: ConstrainedBox(
+                          constraints: BoxConstraints(
+                            maxWidth: media.size.width * 0.58,
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              ColorDot(color: todo.color),
+                              const SizedBox(width: 7),
+                              Flexible(
+                                child: Text(
+                                  todo.title,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        onSelected: (_) => onLinkedTodoChanged(todo.id),
+                      );
+                    }).toList(),
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
                     children: [
-                      Text(
-                        context.l10n.taskTag,
-                        style: theme.labelLarge?.copyWith(
-                          color: AppTheme.muted,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: availableTodos.map((todo) {
-                          final selected = linkedTodoId == todo.id;
-                          return ChoiceChip(
-                            selected: selected,
-                            showCheckmark: false,
-                            label: ConstrainedBox(
-                              constraints: BoxConstraints(
-                                maxWidth: media.size.width * 0.58,
-                              ),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  ColorDot(color: todo.color),
-                                  const SizedBox(width: 7),
-                                  Flexible(
-                                    child: Text(
-                                      todo.title,
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            onSelected: (_) => onLinkedTodoChanged(todo.id),
-                          );
-                        }).toList(),
-                      ),
-                      const SizedBox(height: 12),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: TextField(
-                              controller: hoursController,
-                              keyboardType: TextInputType.number,
-                              decoration: InputDecoration(
-                                labelText: context.l10n.hours,
-                              ),
-                            ),
+                      Expanded(
+                        child: TextField(
+                          controller: hoursController,
+                          keyboardType: TextInputType.number,
+                          decoration: InputDecoration(
+                            labelText: context.l10n.hours,
                           ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: TextField(
-                              controller: minutesController,
-                              keyboardType: TextInputType.number,
-                              decoration: InputDecoration(
-                                labelText: context.l10n.minutes,
-                              ),
-                            ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: TextField(
+                          controller: minutesController,
+                          keyboardType: TextInputType.number,
+                          decoration: InputDecoration(
+                            labelText: context.l10n.minutes,
                           ),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-                      TextField(
-                        controller: descriptionController,
-                        minLines: 2,
-                        maxLines: 6,
-                        keyboardType: TextInputType.multiline,
-                        textInputAction: TextInputAction.newline,
-                        decoration: InputDecoration(
-                          labelText: context.l10n.entryDescription,
-                          alignLabelWithHint: true,
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      TextField(
-                        controller: noteController,
-                        minLines: 2,
-                        maxLines: 5,
-                        keyboardType: TextInputType.multiline,
-                        textInputAction: TextInputAction.newline,
-                        decoration: InputDecoration(
-                          labelText: context.l10n.noteOptional,
-                          alignLabelWithHint: true,
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-                      Text(
-                        context.l10n.ui(
-                          '小时和分钟保持 0 时，将记录为一次计数。',
-                          'Leave hours and minutes at 0 to record this as one count.',
-                        ),
-                        style: theme.bodySmall?.copyWith(
-                          color: AppTheme.muted,
-                          height: 1.35,
                         ),
                       ),
                     ],
                   ),
-                ),
-              ),
-              const SizedBox(height: 14),
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton(
-                      onPressed: onCancel,
-                      child: Text(context.l10n.cancel),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: descriptionController,
+                    minLines: 2,
+                    maxLines: 6,
+                    keyboardType: TextInputType.multiline,
+                    textInputAction: TextInputAction.newline,
+                    decoration: InputDecoration(
+                      labelText: context.l10n.entryDescription,
+                      alignLabelWithHint: true,
                     ),
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: FilledButton(
-                      onPressed: onSubmit,
-                      child: Text(context.l10n.addEntry),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: noteController,
+                    minLines: 2,
+                    maxLines: 5,
+                    keyboardType: TextInputType.multiline,
+                    textInputAction: TextInputAction.newline,
+                    decoration: InputDecoration(
+                      labelText: context.l10n.noteOptional,
+                      alignLabelWithHint: true,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Text(
+                    context.l10n.ui(
+                      '小时和分钟保持 0 时，将记录为一次计数。',
+                      'Leave hours and minutes at 0 to record this as one count.',
+                    ),
+                    style: theme.bodySmall?.copyWith(
+                      color: AppTheme.muted,
+                      height: 1.35,
                     ),
                   ),
                 ],
               ),
+            ),
+          ),
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton(
+                  onPressed: onCancel,
+                  child: Text(context.l10n.cancel),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: FilledButton(
+                  onPressed: onSubmit,
+                  child: Text(context.l10n.addEntry),
+                ),
+              ),
             ],
           ),
-        ),
+        ],
       ),
     );
   }
@@ -950,16 +1100,30 @@ class _EntryCard extends StatelessWidget {
   final VoidCallback? onTap;
   final VoidCallback? onLongPress;
 
+  String get _timeLabel {
+    final hour = event.addedAt.hour.toString().padLeft(2, '0');
+    final minute = event.addedAt.minute.toString().padLeft(2, '0');
+    return '$hour:$minute';
+  }
+
+  String get _dateLabel {
+    final month = event.addedAt.month.toString().padLeft(2, '0');
+    final day = event.addedAt.day.toString().padLeft(2, '0');
+    return '$month/$day';
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context).textTheme;
     return AnimatedContainer(
       duration: AppTheme.fast,
+      curve: AppTheme.motionCurve,
       decoration: BoxDecoration(
-        color: selected ? AppTheme.primarySoft : AppTheme.surface,
+        color: selected ? color.withValues(alpha: 0.1) : AppTheme.surface,
         borderRadius: BorderRadius.circular(AppTheme.radiusCard),
         border: Border.all(
-          color: selected ? AppTheme.primary : AppTheme.border,
+          color: selected ? color : AppTheme.border,
+          width: selected ? 1.4 : 1,
         ),
         boxShadow: selected ? [] : AppTheme.cardShadow,
       ),
@@ -967,73 +1131,152 @@ class _EntryCard extends StatelessWidget {
         onTap: onTap,
         onLongPress: onLongPress,
         borderRadius: BorderRadius.circular(AppTheme.radiusCard),
-        child: Padding(
-          padding: const EdgeInsets.all(14),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(AppTheme.radiusCard),
+          child: Stack(
             children: [
-              if (selectionMode) ...[
-                Checkbox(value: selected, onChanged: (_) => onTap?.call()),
-                const SizedBox(width: 6),
-              ] else ...[
-                Container(
-                  width: 4,
-                  height: 72,
+              Positioned(
+                right: -24,
+                top: -28,
+                child: Container(
+                  width: 84,
+                  height: 84,
                   decoration: BoxDecoration(
-                    color: color,
-                    borderRadius: BorderRadius.circular(999),
+                    color: color.withValues(alpha: 0.07),
+                    borderRadius: BorderRadius.circular(AppTheme.radiusPill),
                   ),
                 ),
-                const SizedBox(width: 12),
-              ],
-              Expanded(
+              ),
+              Positioned(
+                left: 22,
+                top: 0,
+                bottom: 0,
+                child: Container(
+                  width: 2,
+                  decoration: BoxDecoration(
+                    color: color.withValues(alpha: 0.28),
+                    borderRadius: BorderRadius.circular(AppTheme.radiusPill),
+                  ),
+                ),
+              ),
+              Positioned(
+                left: 17,
+                top: 18,
+                child: Container(
+                  width: 12,
+                  height: 12,
+                  decoration: BoxDecoration(
+                    color: color,
+                    borderRadius: BorderRadius.circular(AppTheme.radiusPill),
+                    border: Border.all(color: AppTheme.surface, width: 2),
+                    boxShadow: [
+                      BoxShadow(
+                        color: color.withValues(alpha: 0.24),
+                        blurRadius: 8,
+                        offset: const Offset(0, 3),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(44, 11, 13, 11),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
+                        if (selectionMode) ...[
+                          SizedBox(
+                            width: 28,
+                            height: 34,
+                            child: Center(
+                              child: Checkbox(
+                                value: selected,
+                                onChanged: (_) => onTap?.call(),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                        ],
                         Expanded(
                           child: Text(
                             event.description,
                             maxLines: 2,
                             overflow: TextOverflow.ellipsis,
                             style: theme.titleMedium?.copyWith(
-                              fontWeight: FontWeight.w700,
+                              fontWeight: FontWeight.w900,
                               color: AppTheme.ink,
+                              height: 1.18,
                             ),
                           ),
                         ),
                         const SizedBox(width: 8),
-                        AppChip(label: event.displayDuration, color: color),
+                        DecoratedBox(
+                          decoration: BoxDecoration(
+                            color: color.withValues(alpha: 0.12),
+                            borderRadius: BorderRadius.circular(
+                              AppTheme.radiusPill,
+                            ),
+                            border: Border.all(
+                              color: color.withValues(alpha: 0.14),
+                            ),
+                          ),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 9,
+                              vertical: 6,
+                            ),
+                            child: Text(
+                              event.displayDuration,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: AppTheme.operationText(
+                                theme.labelMedium?.copyWith(
+                                  color: color,
+                                  fontWeight: FontWeight.w900,
+                                  height: 1,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
                       ],
                     ),
                     const SizedBox(height: 8),
                     Wrap(
                       spacing: 8,
-                      runSpacing: 8,
+                      runSpacing: 6,
                       crossAxisAlignment: WrapCrossAlignment.center,
                       children: [
-                        AppChip(
+                        _EntryMetaPill(
                           icon: Icons.sell_outlined,
                           label: tag,
                           color: color,
                         ),
-                        AppChip(
-                          icon: Icons.schedule,
-                          label: timestamp,
+                        _EntryMetaPill(
+                          icon: Icons.access_time_rounded,
+                          label: _timeLabel,
                           color: AppTheme.steel,
+                        ),
+                        _EntryMetaPill(
+                          icon: Icons.calendar_today_outlined,
+                          label: _dateLabel,
+                          color: AppTheme.muted,
                         ),
                       ],
                     ),
                     if (event.note.isNotEmpty) ...[
-                      const SizedBox(height: 9),
+                      const SizedBox(height: 7),
                       Text(
                         event.note,
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                         style: theme.bodySmall?.copyWith(
                           color: AppTheme.muted,
-                          height: 1.4,
+                          height: 1.3,
+                          fontWeight: FontWeight.w600,
                         ),
                       ),
                     ],
@@ -1043,6 +1286,52 @@ class _EntryCard extends StatelessWidget {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _EntryMetaPill extends StatelessWidget {
+  const _EntryMetaPill({
+    required this.icon,
+    required this.label,
+    required this.color,
+  });
+
+  final IconData? icon;
+  final String label;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      constraints: const BoxConstraints(maxWidth: 180),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(AppTheme.radiusPill),
+        border: Border.all(color: color.withValues(alpha: 0.12)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (icon != null) ...[
+            Icon(icon, size: 13, color: color),
+            const SizedBox(width: 5),
+          ],
+          Flexible(
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                color: color,
+                fontWeight: FontWeight.w900,
+                height: 1,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

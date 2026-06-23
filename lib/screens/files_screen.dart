@@ -9,9 +9,11 @@ import '../models/file_item.dart';
 import '../theme/app_theme.dart';
 import '../utils/ai_service.dart';
 import '../utils/app_localizations.dart';
+import '../utils/cloud_sync_service.dart';
 import '../utils/file_library_service.dart';
 import '../utils/note_persistence.dart';
 import '../widgets/app_components.dart';
+import '../widgets/responsive_scaffold.dart';
 import 'file_detail_screen.dart';
 
 enum _FileLibraryView { active, archived }
@@ -30,15 +32,18 @@ class FilesScreenState extends State<FilesScreen> {
   List<FileItem> _items = [];
   List<FileTag> _tags = [];
   final Set<String> _selectedIds = {};
+  String? _focusedItemId;
   String? _selectedTagId;
   _FileLibraryView _view = _FileLibraryView.active;
   bool _isLoading = true;
   bool _isImporting = false;
+  bool _isAiTitling = false;
 
   @override
   void initState() {
     super.initState();
     _load();
+    unawaited(refreshFromCloud(force: false));
   }
 
   @override
@@ -65,6 +70,27 @@ class FilesScreenState extends State<FilesScreen> {
   }
 
   Future<void> refresh() => _load();
+
+  Future<void> refreshFromCloud({bool force = true}) async {
+    await CloudSyncService.instance.syncNow(force: force);
+    await _load();
+  }
+
+  FileItem? get _focusedItem {
+    if (_items.isEmpty) {
+      return null;
+    }
+    final focusedId = _focusedItemId;
+    if (focusedId == null) {
+      return _items.first;
+    }
+    for (final item in _items) {
+      if (item.id == focusedId) {
+        return item;
+      }
+    }
+    return _items.first;
+  }
 
   Future<void> importSharedText(String text) async {
     final trimmed = text.trim();
@@ -111,53 +137,64 @@ class FilesScreenState extends State<FilesScreen> {
   }
 
   Future<void> _showAddSheet() async {
-    await showModalBottomSheet<void>(
+    await showAppActionSheet<void>(
       context: context,
-      showDragHandle: true,
-      builder: (context) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(18, 8, 18, 18),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              ListTile(
-                leading: const Icon(Icons.public),
-                title: Text(context.l10n.addWebpage),
-                subtitle: Text(context.l10n.addWebpageSubtitle),
-                onTap: () {
-                  Navigator.of(context).pop();
-                  unawaited(_showAddWebpageDialog());
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.notes_outlined),
-                title: Text(context.l10n.addText),
-                subtitle: Text(context.l10n.addTextSubtitle),
-                onTap: () {
-                  Navigator.of(context).pop();
-                  unawaited(_showAddTextDialog());
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.attach_file),
-                title: Text(context.l10n.addFiles),
-                subtitle: Text(context.l10n.addFilesSubtitle),
-                onTap: () {
-                  Navigator.of(context).pop();
-                  unawaited(_pickFiles());
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.new_label_outlined),
-                title: Text(context.l10n.addTags),
-                subtitle: Text(context.l10n.addTagsSubtitle),
-                onTap: () {
-                  Navigator.of(context).pop();
-                  unawaited(_showTagManager());
-                },
-              ),
-            ],
-          ),
+      builder: (context) => Padding(
+        padding: const EdgeInsets.fromLTRB(18, 0, 18, 18),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            AppSheetHeader(
+              icon: Icons.library_add_outlined,
+              title: context.l10n.addToFiles,
+              description: context.l10n.filesDescription,
+              accent: AppTheme.primary,
+            ),
+            const SizedBox(height: AppTheme.space3),
+            AppActionTile(
+              icon: Icons.public,
+              title: context.l10n.addWebpage,
+              subtitle: context.l10n.addWebpageSubtitle,
+              onTap: () {
+                Navigator.of(context).pop();
+                unawaited(_showAddWebpageDialog());
+              },
+            ),
+            const SizedBox(height: AppTheme.space2),
+            AppActionTile(
+              icon: Icons.notes_outlined,
+              title: context.l10n.addText,
+              subtitle: context.l10n.addTextSubtitle,
+              accent: AppTheme.copper,
+              onTap: () {
+                Navigator.of(context).pop();
+                unawaited(_showAddTextDialog());
+              },
+            ),
+            const SizedBox(height: AppTheme.space2),
+            AppActionTile(
+              icon: Icons.attach_file,
+              title: context.l10n.addFiles,
+              subtitle: context.l10n.addFilesSubtitle,
+              accent: AppTheme.steel,
+              onTap: () {
+                Navigator.of(context).pop();
+                unawaited(_pickFiles());
+              },
+            ),
+            const SizedBox(height: AppTheme.space2),
+            AppActionTile(
+              icon: Icons.new_label_outlined,
+              title: context.l10n.addTags,
+              subtitle: context.l10n.addTagsSubtitle,
+              accent: AppTheme.success,
+              onTap: () {
+                Navigator.of(context).pop();
+                unawaited(_showTagManager());
+              },
+            ),
+          ],
         ),
       ),
     );
@@ -542,6 +579,20 @@ class FilesScreenState extends State<FilesScreen> {
               }
             }
 
+            Future<void> reorderTags(int oldIndex, int newIndex) async {
+              final reordered = [...tags];
+              final moved = reordered.removeAt(oldIndex);
+              reordered.insert(newIndex, moved);
+              tags = reordered;
+              setDialogState(() {});
+              await _service.reorderTags(
+                reordered.map((tag) => tag.id).toList(),
+              );
+              tags = await _service.loadTags();
+              setDialogState(() {});
+              await _load();
+            }
+
             return Dialog(
               insetPadding: const EdgeInsets.symmetric(
                 horizontal: 18,
@@ -622,46 +673,53 @@ class FilesScreenState extends State<FilesScreen> {
                                 title: context.l10n.noTagsYet,
                                 message: context.l10n.createTagAbove,
                               )
-                            : ListView.separated(
+                            : ReorderableListView.builder(
                                 shrinkWrap: true,
+                                buildDefaultDragHandles: true,
                                 itemCount: tags.length,
-                                separatorBuilder: (_, _) =>
-                                    const SizedBox(height: 4),
+                                onReorderItem: (oldIndex, newIndex) =>
+                                    unawaited(reorderTags(oldIndex, newIndex)),
                                 itemBuilder: (context, index) {
                                   final tag = tags[index];
-                                  return ListTile(
-                                    contentPadding: EdgeInsets.zero,
-                                    leading: const Icon(Icons.sell_outlined),
-                                    title: Text(
-                                      tag.name,
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                    trailing: Wrap(
-                                      spacing: 2,
-                                      children: [
-                                        IconButton(
-                                          tooltip: context.l10n.rename,
-                                          onPressed: () async {
-                                            await _showRenameTagDialog(tag);
-                                            tags = await _service.loadTags();
-                                            setDialogState(() {});
-                                          },
-                                          icon: const Icon(Icons.edit_outlined),
-                                        ),
-                                        IconButton(
-                                          tooltip: context.l10n.deleteTag,
-                                          color: AppTheme.danger,
-                                          onPressed: () async {
-                                            await _deleteTag(tag);
-                                            tags = await _service.loadTags();
-                                            setDialogState(() {});
-                                          },
-                                          icon: const Icon(
-                                            Icons.delete_outline,
+                                  return Padding(
+                                    key: ValueKey(tag.id),
+                                    padding: const EdgeInsets.only(bottom: 4),
+                                    child: ListTile(
+                                      contentPadding: EdgeInsets.zero,
+                                      leading: const Icon(Icons.drag_handle),
+                                      title: Text(
+                                        tag.name,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                      trailing: Wrap(
+                                        spacing: 2,
+                                        children: [
+                                          IconButton(
+                                            tooltip: context.l10n.rename,
+                                            onPressed: () async {
+                                              await _showRenameTagDialog(tag);
+                                              tags = await _service.loadTags();
+                                              setDialogState(() {});
+                                            },
+                                            icon: const Icon(
+                                              Icons.edit_outlined,
+                                            ),
                                           ),
-                                        ),
-                                      ],
+                                          IconButton(
+                                            tooltip: context.l10n.deleteTag,
+                                            color: AppTheme.danger,
+                                            onPressed: () async {
+                                              await _deleteTag(tag);
+                                              tags = await _service.loadTags();
+                                              setDialogState(() {});
+                                            },
+                                            icon: const Icon(
+                                              Icons.delete_outline,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
                                     ),
                                   );
                                 },
@@ -778,6 +836,20 @@ class FilesScreenState extends State<FilesScreen> {
     await _load();
   }
 
+  Future<void> _showSelectedFilesAiChat() async {
+    final selectedItems = _items
+        .where((item) => _selectedIds.contains(item.id))
+        .toList(growable: false);
+    if (selectedItems.isEmpty) {
+      return;
+    }
+    await showAppActionSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) => FileAiChatSheet(items: selectedItems),
+    );
+  }
+
   Future<void> _showRenameItemDialog(FileItem item) async {
     final controller = TextEditingController(text: item.title);
     await showDialog<void>(
@@ -826,6 +898,126 @@ class FilesScreenState extends State<FilesScreen> {
       },
     );
     controller.dispose();
+  }
+
+  Future<void> _showAiTitleSheet() async {
+    final pending = await _service.loadAiTitlePendingItems();
+    if (!mounted) {
+      return;
+    }
+    await showAppActionSheet<void>(
+      context: context,
+      builder: (sheetContext) {
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            Future<void> generate() async {
+              if (_isAiTitling || pending.isEmpty) {
+                return;
+              }
+              final l10n = this.context.l10n;
+              final messenger = ScaffoldMessenger.of(this.context);
+              setSheetState(() {
+                _isAiTitling = true;
+              });
+              setState(() {
+                _isAiTitling = true;
+              });
+              try {
+                final result = await _service.generateAiTitlesForPendingFiles();
+                if (!mounted) {
+                  return;
+                }
+                await _load();
+                if (sheetContext.mounted) {
+                  Navigator.of(sheetContext).pop();
+                }
+                messenger.showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      result.updatedCount == 0
+                          ? l10n.aiTitleNoPending
+                          : l10n.aiTitleUpdatedCount(result.updatedCount),
+                    ),
+                  ),
+                );
+              } on Object catch (error) {
+                if (mounted) {
+                  messenger.showSnackBar(
+                    SnackBar(content: Text(l10n.localizeError('$error'))),
+                  );
+                }
+              } finally {
+                if (mounted) {
+                  setState(() {
+                    _isAiTitling = false;
+                  });
+                }
+                if (sheetContext.mounted) {
+                  setSheetState(() {
+                    _isAiTitling = false;
+                  });
+                }
+              }
+            }
+
+            return Padding(
+              padding: const EdgeInsets.fromLTRB(18, 0, 18, 18),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  AppSheetHeader(
+                    icon: Icons.auto_awesome_outlined,
+                    title: context.l10n.aiTitleFiles,
+                    description: context.l10n.aiTitleFilesBody,
+                    accent: AppTheme.warning,
+                  ),
+                  const SizedBox(height: 14),
+                  AppPanel(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 12,
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.inventory_2_outlined),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            pending.isEmpty
+                                ? context.l10n.aiTitleNoPending
+                                : context.l10n.aiTitlePendingCount(
+                                    pending.length,
+                                  ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  SizedBox(
+                    width: double.infinity,
+                    child: FilledButton.icon(
+                      onPressed: pending.isEmpty || _isAiTitling
+                          ? null
+                          : generate,
+                      icon: _isAiTitling
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.auto_awesome_outlined),
+                      label: Text(context.l10n.generateAiTitles),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
   }
 
   Future<void> _deleteSelected() async {
@@ -877,27 +1069,295 @@ class FilesScreenState extends State<FilesScreen> {
     });
   }
 
-  Future<void> _showAiChat() async {
-    final selected = _items
-        .where((item) => _selectedIds.contains(item.id))
-        .toList(growable: false);
-    await showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
-      builder: (_) => FileAiChatSheet(items: selected),
-    );
-  }
-
   void _openItem(FileItem item) {
     if (_selectedIds.isNotEmpty) {
       _toggleSelection(item.id);
       return;
     }
-    unawaited(
-      Navigator.of(context)
-          .push(MaterialPageRoute(builder: (_) => FileDetailScreen(item: item)))
-          .then((_) => _load()),
+    if (isDesktopLayout(context)) {
+      setState(() {
+        _focusedItemId = item.id;
+      });
+      return;
+    }
+    unawaited(_openItemPage(item));
+  }
+
+  Future<void> _openItemPage(FileItem item) async {
+    await Navigator.of(
+      context,
+    ).push(MaterialPageRoute(builder: (_) => FileDetailScreen(item: item)));
+    await _load();
+  }
+
+  String _filesHeaderMeta() {
+    final showingArchive = _view == _FileLibraryView.archived;
+    return context.l10n.ui(
+      '${showingArchive ? '归档' : '当前'} ${_items.length} 个文件 · ${_tags.length} 个标签',
+      '${showingArchive ? 'Archived' : 'Current'} ${_items.length} files · ${_tags.length} tags',
+      '${showingArchive ? 'アーカイブ' : '現在'} ${_items.length} 件 · タグ ${_tags.length}',
+    );
+  }
+
+  Widget _buildDesktopFilters() {
+    return SingleChildScrollView(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          SectionHeader(
+            eyebrow: context.l10n.filesEyebrow,
+            title: context.l10n.filesTitle,
+            description: _filesHeaderMeta(),
+            showContext: false,
+            showCompactMeta: true,
+            trailing: QuietIconButton(
+              icon: Icons.auto_awesome_outlined,
+              tooltip: context.l10n.aiTitleFiles,
+              onPressed: _showAiTitleSheet,
+            ),
+          ),
+          const SizedBox(height: AppTheme.space3),
+          _buildSearch(),
+          const SizedBox(height: AppTheme.space3),
+          ChoiceChip(
+            avatar: const Icon(Icons.layers_outlined, size: 18),
+            showCheckmark: false,
+            label: Align(
+              alignment: Alignment.centerLeft,
+              child: Text(context.l10n.allFiles),
+            ),
+            selected:
+                _view == _FileLibraryView.active && _selectedTagId == null,
+            onSelected: (_) {
+              setState(() {
+                _view = _FileLibraryView.active;
+                _selectedTagId = null;
+              });
+              _load();
+            },
+          ),
+          const SizedBox(height: AppTheme.space1),
+          ChoiceChip(
+            avatar: const Icon(Icons.archive_outlined, size: 18),
+            showCheckmark: false,
+            label: Align(
+              alignment: Alignment.centerLeft,
+              child: Text(context.l10n.archivedFiles),
+            ),
+            selected:
+                _view == _FileLibraryView.archived && _selectedTagId == null,
+            onSelected: (_) {
+              setState(() {
+                _view = _FileLibraryView.archived;
+                _selectedTagId = null;
+              });
+              _load();
+            },
+          ),
+          const SizedBox(height: AppTheme.space2),
+          for (final tag in _tags) ...[
+            ChoiceChip(
+              avatar: const Icon(Icons.sell_outlined, size: 18),
+              showCheckmark: false,
+              label: Align(
+                alignment: Alignment.centerLeft,
+                child: Text(tag.name),
+              ),
+              selected: _selectedTagId == tag.id,
+              onSelected: (_) {
+                setState(() {
+                  _view = _FileLibraryView.active;
+                  _selectedTagId = tag.id;
+                });
+                _load();
+              },
+            ),
+            const SizedBox(height: AppTheme.space1),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDesktopDetailPanel() {
+    final item = _focusedItem;
+    if (item == null) {
+      return EmptyState(
+        icon: Icons.folder_copy_outlined,
+        title: context.l10n.noFilesTitle,
+        message: context.l10n.noFilesMessage,
+      );
+    }
+    final archived = _view == _FileLibraryView.archived;
+    return SingleChildScrollView(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          SectionHeader(
+            eyebrow: archived
+                ? context.l10n.archivedFiles
+                : context.l10n.ui('当前文件', 'Selected file', '選択中のファイル'),
+            title: item.title,
+            description: _sourceLabel(item),
+            trailing: PopupMenuButton<String>(
+              tooltip: context.l10n.fileActions,
+              onSelected: (value) {
+                if (value == 'open') {
+                  unawaited(_openItemPage(item));
+                } else if (value == 'tag') {
+                  unawaited(_showTagEditor(item));
+                } else if (value == 'rename') {
+                  unawaited(_showRenameItemDialog(item));
+                } else if (value == 'archive') {
+                  unawaited(_archiveItem(item));
+                } else if (value == 'restore') {
+                  unawaited(_restoreItem(item));
+                } else if (value == 'delete') {
+                  unawaited(_deleteItem(item));
+                }
+              },
+              itemBuilder: (context) => [
+                PopupMenuItem(
+                  value: 'open',
+                  child: _FileMenuAction(
+                    icon: Icons.open_in_new,
+                    label: context.l10n.openExternally,
+                  ),
+                ),
+                if (!archived)
+                  PopupMenuItem(
+                    value: 'tag',
+                    child: _FileMenuAction(
+                      icon: Icons.sell_outlined,
+                      label: context.l10n.editTags,
+                    ),
+                  ),
+                PopupMenuItem(
+                  value: 'rename',
+                  child: _FileMenuAction(
+                    icon: Icons.edit_outlined,
+                    label: context.l10n.rename,
+                  ),
+                ),
+                PopupMenuItem(
+                  value: archived ? 'restore' : 'archive',
+                  child: _FileMenuAction(
+                    icon: archived
+                        ? Icons.unarchive_outlined
+                        : Icons.archive_outlined,
+                    label: archived
+                        ? context.l10n.restore
+                        : context.l10n.archive,
+                  ),
+                ),
+                PopupMenuItem(
+                  value: 'delete',
+                  child: _FileMenuAction(
+                    icon: Icons.delete_outline,
+                    label: context.l10n.delete,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: AppTheme.space3),
+          AppPanel(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: [
+                    AppChip(
+                      icon: _iconForKind(item.kind),
+                      label: item.kind.label,
+                      color: AppTheme.primary,
+                    ),
+                    AppChip(
+                      icon: Icons.update,
+                      label: context.l10n.updatedAt(
+                        _formatDateTime(item.updatedAt),
+                      ),
+                      color: AppTheme.steel,
+                    ),
+                    for (final tag in item.tags)
+                      AppChip(
+                        label: tag.name,
+                        color: AppTheme.steel,
+                        icon: Icons.sell_outlined,
+                        maxWidth: 160,
+                      ),
+                  ],
+                ),
+                const SizedBox(height: AppTheme.space3),
+                SelectableText(
+                  item.plainTextPreview.isEmpty
+                      ? '${item.kind.label} item'
+                      : item.plainTextPreview,
+                  style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                    color: AppTheme.ink,
+                    height: 1.5,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: AppTheme.space3),
+          FilledButton.icon(
+            onPressed: () => unawaited(_openItemPage(item)),
+            icon: const Icon(Icons.open_in_new),
+            label: Text(context.l10n.openExternally),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDesktopLayout(int selectedCount) {
+    return AdaptiveWorkspace(
+      primaryFlex: 3,
+      secondaryFlex: 5,
+      tertiaryFlex: 4,
+      primary: _buildDesktopFilters(),
+      secondary: RefreshIndicator(
+        onRefresh: refreshFromCloud,
+        child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          children: [
+            SectionHeader(
+              eyebrow: context.l10n.ui('资料列表', 'Library', 'ライブラリ'),
+              title: selectedCount == 0
+                  ? context.l10n.filesTitle
+                  : context.l10n.selectedCount(selectedCount),
+              description: context.l10n.filesDescription,
+              showContext: false,
+              trailing: selectedCount == 0
+                  ? QuietIconButton(
+                      icon: Icons.auto_awesome_outlined,
+                      tooltip: context.l10n.aiTitleFiles,
+                      onPressed: _showAiTitleSheet,
+                    )
+                  : null,
+            ),
+            const SizedBox(height: AppTheme.space3),
+            if (_isImporting)
+              const LinearProgressIndicator(minHeight: 3)
+            else if (_items.isEmpty)
+              EmptyState(
+                icon: Icons.folder_copy_outlined,
+                title: context.l10n.noFilesTitle,
+                message: context.l10n.noFilesMessage,
+              )
+            else
+              ...List.generate(
+                _items.length,
+                (index) => _buildItemCard(_items[index], index),
+              ),
+          ],
+        ),
+      ),
+      tertiary: _buildDesktopDetailPanel(),
     );
   }
 
@@ -920,6 +1380,21 @@ class FilesScreenState extends State<FilesScreen> {
     final selectedCount = _selectedIds.length;
     final l10n = context.l10n;
     final showingArchive = _view == _FileLibraryView.archived;
+    if (isDesktopLayout(context)) {
+      return PopScope(
+        canPop: selectedCount == 0,
+        onPopInvokedWithResult: (didPop, result) {
+          if (!didPop && _selectedIds.isNotEmpty) {
+            _exitSelectionMode();
+          }
+        },
+        child: Scaffold(
+          body: SafeArea(child: _buildDesktopLayout(selectedCount)),
+          floatingActionButtonLocation: const AppTuckedEndFabLocation(),
+          floatingActionButton: _buildFileContextualFab(selectedCount),
+        ),
+      );
+    }
     return PopScope(
       canPop: selectedCount == 0,
       onPopInvokedWithResult: (didPop, result) {
@@ -929,78 +1404,118 @@ class FilesScreenState extends State<FilesScreen> {
       },
       child: Scaffold(
         body: SafeArea(
-          child: ListView(
-            padding: EdgeInsets.fromLTRB(
-              AppTheme.pagePadding,
-              18,
-              AppTheme.pagePadding,
-              selectedCount > 0 ? 150 : 104,
-            ),
-            children: [
-              PageIntro(
-                eyebrow: l10n.filesEyebrow,
-                title: selectedCount == 0
-                    ? l10n.filesTitle
-                    : l10n.selectedCount(selectedCount),
-                description: l10n.filesDescription,
-                trailing: selectedCount == 0
-                    ? null
-                    : QuietIconButton(
-                        icon: showingArchive
-                            ? Icons.unarchive_outlined
-                            : Icons.archive_outlined,
-                        tooltip: showingArchive
-                            ? l10n.restoreSelected
-                            : l10n.archiveSelected,
-                        onPressed: showingArchive
-                            ? _restoreSelected
-                            : _archiveSelected,
-                      ),
+          child: RefreshIndicator(
+            onRefresh: refreshFromCloud,
+            child: ListView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: EdgeInsets.fromLTRB(
+                AppTheme.pagePadding,
+                18,
+                AppTheme.pagePadding,
+                selectedCount > 0 ? 150 : 104,
               ),
-              const SizedBox(height: 16),
-              if (selectedCount == 0) ...[
-                _buildSearch(),
-                const SizedBox(height: 12),
-              ],
-              _buildTagFilters(),
-              const SizedBox(height: 16),
-              if (_isImporting)
-                const LinearProgressIndicator(minHeight: 3)
-              else if (_items.isEmpty)
-                EmptyState(
-                  icon: showingArchive
-                      ? Icons.archive_outlined
-                      : Icons.folder_copy_outlined,
-                  title: showingArchive
-                      ? l10n.ui('归档为空', 'Archive is empty', 'アーカイブは空です')
-                      : l10n.noFilesTitle,
-                  message: showingArchive
-                      ? l10n.ui(
-                          '归档后的文件会显示在这里，可随时恢复。',
-                          'Archived files appear here and can be restored anytime.',
-                          'アーカイブ済みファイルはここに表示され、いつでも復元できます。',
+              children: [
+                PageIntro(
+                  eyebrow: l10n.filesEyebrow,
+                  title: selectedCount == 0
+                      ? l10n.filesTitle
+                      : l10n.selectedCount(selectedCount),
+                  description: selectedCount == 0
+                      ? _filesHeaderMeta()
+                      : l10n.filesDescription,
+                  showContext: false,
+                  showCompactMeta: selectedCount == 0,
+                  trailing: selectedCount == 0
+                      ? QuietIconButton(
+                          icon: Icons.auto_awesome_outlined,
+                          tooltip: l10n.aiTitleFiles,
+                          onPressed: _showAiTitleSheet,
                         )
-                      : l10n.noFilesMessage,
-                )
-              else
-                ...List.generate(
-                  _items.length,
-                  (index) => _buildItemCard(_items[index], index),
+                      : null,
                 ),
-            ],
+                const SizedBox(height: 16),
+                if (selectedCount == 0) ...[
+                  _buildSearch(),
+                  const SizedBox(height: 12),
+                ],
+                _buildTagFilters(),
+                const SizedBox(height: 16),
+                if (_isImporting)
+                  const LinearProgressIndicator(minHeight: 3)
+                else if (_items.isEmpty)
+                  EmptyState(
+                    icon: showingArchive
+                        ? Icons.archive_outlined
+                        : Icons.folder_copy_outlined,
+                    title: showingArchive
+                        ? l10n.ui('归档为空', 'Archive is empty', 'アーカイブは空です')
+                        : l10n.noFilesTitle,
+                    message: showingArchive
+                        ? l10n.ui(
+                            '归档后的文件会显示在这里，可随时恢复。',
+                            'Archived files appear here and can be restored anytime.',
+                            'アーカイブ済みファイルはここに表示され、いつでも復元できます。',
+                          )
+                        : l10n.noFilesMessage,
+                  )
+                else
+                  ...List.generate(
+                    _items.length,
+                    (index) => _buildItemCard(_items[index], index),
+                  ),
+              ],
+            ),
           ),
         ),
-        bottomNavigationBar: selectedCount > 0
-            ? _buildSelectionBottomBar()
-            : null,
-        floatingActionButton: selectedCount > 0
-            ? null
-            : FloatingActionButton(
-                onPressed: _isImporting ? null : _showAddSheet,
-                tooltip: l10n.addToFiles,
-                child: const Icon(Icons.add),
-              ),
+        floatingActionButtonLocation: const AppTuckedEndFabLocation(),
+        floatingActionButton: _buildFileContextualFab(selectedCount),
       ),
+    );
+  }
+
+  Widget _buildFileContextualFab(int selectedCount) {
+    final showingArchive = _view == _FileLibraryView.archived;
+    final isSelectionMode = selectedCount > 0;
+    return ContextualActionFab(
+      heroTag: 'files-contextual-fab',
+      tooltip: isSelectionMode ? context.l10n.delete : context.l10n.addToFiles,
+      icon: isSelectionMode ? Icons.delete : Icons.add,
+      isDestructive: isSelectionMode,
+      onPressed: isSelectionMode
+          ? _deleteSelected
+          : _isImporting
+          ? null
+          : _showAddSheet,
+      actions: isSelectionMode
+          ? [
+              ContextualFabAction(
+                icon: Icons.psychology_outlined,
+                label: context.l10n.askSelectedFiles,
+                tooltip: context.l10n.askSelectedFiles,
+                onPressed: _showSelectedFilesAiChat,
+                backgroundColor: AppTheme.sunshineSoft,
+                foregroundColor: AppTheme.warning,
+              ),
+              ContextualFabAction(
+                icon: showingArchive
+                    ? Icons.unarchive_outlined
+                    : Icons.archive_outlined,
+                label: showingArchive
+                    ? context.l10n.restoreSelected
+                    : context.l10n.archiveSelected,
+                tooltip: showingArchive
+                    ? context.l10n.restoreSelected
+                    : context.l10n.archiveSelected,
+                onPressed: showingArchive ? _restoreSelected : _archiveSelected,
+              ),
+              ContextualFabAction(
+                icon: Icons.close,
+                label: context.l10n.clearSelection,
+                tooltip: context.l10n.clearSelection,
+                onPressed: _exitSelectionMode,
+              ),
+            ]
+          : const [],
     );
   }
 
@@ -1025,57 +1540,6 @@ class FilesScreenState extends State<FilesScreen> {
     );
   }
 
-  Widget _buildSelectionBottomBar() {
-    final showingArchive = _view == _FileLibraryView.archived;
-    return SafeArea(
-      child: Container(
-        margin: const EdgeInsets.fromLTRB(14, 0, 14, 12),
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-        decoration: BoxDecoration(
-          color: AppTheme.surface,
-          borderRadius: BorderRadius.circular(18),
-          border: Border.all(color: AppTheme.border),
-          boxShadow: AppTheme.cardShadow,
-        ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-          children: [
-            IconButton(
-              tooltip: context.l10n.clearSelection,
-              onPressed: _exitSelectionMode,
-              icon: const Icon(Icons.close),
-            ),
-            const SizedBox(width: 4),
-            if (!showingArchive)
-              TextButton.icon(
-                onPressed: _showAiChat,
-                icon: const Icon(Icons.auto_awesome_outlined, size: 18),
-                label: Text(context.l10n.ask),
-              ),
-            TextButton.icon(
-              onPressed: showingArchive ? _restoreSelected : _archiveSelected,
-              icon: Icon(
-                showingArchive
-                    ? Icons.unarchive_outlined
-                    : Icons.archive_outlined,
-                size: 18,
-              ),
-              label: Text(
-                showingArchive ? context.l10n.restore : context.l10n.archive,
-              ),
-            ),
-            TextButton.icon(
-              onPressed: _deleteSelected,
-              icon: const Icon(Icons.delete_outline, size: 18),
-              label: Text(context.l10n.delete),
-              style: TextButton.styleFrom(foregroundColor: AppTheme.danger),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
   Widget _buildTagFilters() {
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
@@ -1083,6 +1547,7 @@ class FilesScreenState extends State<FilesScreen> {
         children: [
           ChoiceChip(
             avatar: const Icon(Icons.layers_outlined, size: 18),
+            showCheckmark: false,
             label: Text(context.l10n.allFiles),
             selected:
                 _view == _FileLibraryView.active && _selectedTagId == null,
@@ -1097,6 +1562,7 @@ class FilesScreenState extends State<FilesScreen> {
           const SizedBox(width: 8),
           ChoiceChip(
             avatar: const Icon(Icons.archive_outlined, size: 18),
+            showCheckmark: false,
             label: Text(context.l10n.archivedFiles),
             selected:
                 _view == _FileLibraryView.archived && _selectedTagId == null,
@@ -1112,10 +1578,12 @@ class FilesScreenState extends State<FilesScreen> {
           for (final tag in _tags) ...[
             ChoiceChip(
               avatar: const Icon(Icons.sell_outlined, size: 18),
+              showCheckmark: false,
               label: Text(tag.name),
               selected: _selectedTagId == tag.id,
               onSelected: (_) {
                 setState(() {
+                  _view = _FileLibraryView.active;
                   _selectedTagId = tag.id;
                 });
                 _load();

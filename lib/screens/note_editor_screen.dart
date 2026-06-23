@@ -126,10 +126,9 @@ class _NoteEditorScreenState extends State<NoteEditorScreen> {
     );
     String? aiResult;
 
-    await showModalBottomSheet<void>(
+    await showAppActionSheet<void>(
       context: context,
       isScrollControlled: true,
-      useSafeArea: true,
       builder: (sheetContext) {
         return StatefulBuilder(
           builder: (context, setSheetState) {

@@ -22,48 +22,47 @@ class WelcomeScreen extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(24, 42, 24, 22),
+                  padding: const EdgeInsets.fromLTRB(18, 30, 18, 16),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       FadeSlideIn(
                         child: Container(
-                          width: 72,
-                          height: 72,
+                          width: 54,
+                          height: 54,
                           decoration: BoxDecoration(
-                            color: AppTheme.surface,
-                            borderRadius: BorderRadius.circular(18),
-                            border: Border.all(color: AppTheme.border),
+                            color: AppTheme.primary,
+                            borderRadius: BorderRadius.circular(15),
                             boxShadow: AppTheme.cardShadow,
                           ),
                           child: const Icon(
-                            Icons.schedule_rounded,
-                            size: 34,
-                            color: AppTheme.primary,
+                            Icons.bolt_rounded,
+                            size: 28,
+                            color: Colors.white,
                           ),
                         ),
                       ),
-                      const SizedBox(height: 28),
+                      const SizedBox(height: 22),
                       FadeSlideIn(
                         delay: const Duration(milliseconds: 70),
                         child: Text(
                           l10n.welcomeTitle,
-                          style: textTheme.displaySmall?.copyWith(
-                            fontWeight: FontWeight.w700,
+                          style: textTheme.headlineMedium?.copyWith(
+                            fontWeight: FontWeight.w900,
                             color: AppTheme.ink,
-                            height: 1.05,
+                            height: 1.02,
                           ),
                         ),
                       ),
-                      const SizedBox(height: 14),
+                      const SizedBox(height: 10),
                       FadeSlideIn(
                         delay: const Duration(milliseconds: 120),
                         child: Text(
                           l10n.welcomeSubtitle,
                           style: textTheme.bodyLarge?.copyWith(
-                            height: 1.55,
+                            height: 1.42,
                             color: AppTheme.muted,
-                            fontWeight: FontWeight.w500,
+                            fontWeight: FontWeight.w600,
                           ),
                         ),
                       ),
@@ -71,12 +70,11 @@ class WelcomeScreen extends StatelessWidget {
                   ),
                 ),
                 Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 18),
+                  padding: const EdgeInsets.symmetric(horizontal: 14),
                   child: AppPanel(
-                    color: AppTheme.raisedSurface,
                     padding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 18,
+                      horizontal: 14,
+                      vertical: 14,
                     ),
                     child: Column(
                       children: [
@@ -88,7 +86,7 @@ class WelcomeScreen extends StatelessWidget {
                             description: l10n.welcomeSyncBody,
                           ),
                         ),
-                        const SizedBox(height: 16),
+                        const SizedBox(height: 12),
                         FadeSlideIn(
                           delay: const Duration(milliseconds: 240),
                           child: _WelcomePoint(
@@ -97,7 +95,7 @@ class WelcomeScreen extends StatelessWidget {
                             description: l10n.welcomeObjectsBody,
                           ),
                         ),
-                        const SizedBox(height: 16),
+                        const SizedBox(height: 12),
                         FadeSlideIn(
                           delay: const Duration(milliseconds: 300),
                           child: _WelcomePoint(
@@ -110,9 +108,9 @@ class WelcomeScreen extends StatelessWidget {
                     ),
                   ),
                 ),
-                const SizedBox(height: 24),
+                const SizedBox(height: 18),
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(18, 0, 18, 28),
+                  padding: const EdgeInsets.fromLTRB(14, 0, 14, 24),
                   child: FadeSlideIn(
                     delay: const Duration(milliseconds: 360),
                     child: SizedBox(
@@ -120,7 +118,7 @@ class WelcomeScreen extends StatelessWidget {
                       child: FilledButton(
                         onPressed: () async => onContinue(),
                         style: FilledButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(vertical: 16),
+                          padding: const EdgeInsets.symmetric(vertical: 14),
                         ),
                         child: Text(l10n.startTracking),
                       ),
@@ -153,15 +151,15 @@ class _WelcomePoint extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Container(
-          width: 40,
-          height: 40,
+          width: 34,
+          height: 34,
           decoration: BoxDecoration(
             color: AppTheme.primarySoft,
-            borderRadius: BorderRadius.circular(999),
+            borderRadius: BorderRadius.circular(9),
           ),
-          child: Icon(icon, color: AppTheme.primary),
+          child: Icon(icon, color: AppTheme.primary, size: 18),
         ),
-        const SizedBox(width: 12),
+        const SizedBox(width: 10),
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -169,18 +167,19 @@ class _WelcomePoint extends StatelessWidget {
               Text(
                 title,
                 style: const TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w700,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w800,
                   color: AppTheme.ink,
                 ),
               ),
-              const SizedBox(height: 4),
+              const SizedBox(height: 3),
               Text(
                 description,
                 style: const TextStyle(
-                  fontSize: 14,
-                  height: 1.5,
+                  fontSize: 13,
+                  height: 1.36,
                   color: AppTheme.muted,
+                  fontWeight: FontWeight.w500,
                 ),
               ),
             ],

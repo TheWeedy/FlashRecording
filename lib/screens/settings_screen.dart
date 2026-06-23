@@ -11,6 +11,7 @@ import '../utils/cloud_sync_service.dart';
 import '../utils/pocketbase_auth_service.dart';
 import '../utils/sync_settings_service.dart';
 import '../widgets/app_components.dart';
+import '../widgets/responsive_scaffold.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -246,6 +247,304 @@ class _SettingsScreenState extends State<SettingsScreen> {
     ).showSnackBar(SnackBar(content: Text(context.l10n.signedOut)));
   }
 
+  Widget _panelHeader({
+    required IconData icon,
+    required Color color,
+    required String title,
+    required String body,
+  }) {
+    return Row(
+      children: [
+        Container(
+          width: 44,
+          height: 44,
+          decoration: BoxDecoration(
+            color: color.withValues(alpha: 0.14),
+            borderRadius: BorderRadius.circular(999),
+          ),
+          child: Icon(icon, color: color),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: Theme.of(
+                  context,
+                ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+              ),
+              const SizedBox(height: 3),
+              Text(
+                body,
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: AppTheme.muted,
+                  height: 1.35,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildDesktopSettings(PocketBaseSession? session, bool isLoggedIn) {
+    return AdaptiveWorkspace(
+      primaryFlex: 5,
+      secondaryFlex: 5,
+      primary: ListView(
+        children: [
+          SectionHeader(
+            eyebrow: context.l10n.ui('控制面板', 'Control panel', 'コントロールパネル'),
+            title: context.l10n.syncSettingsTitle,
+            description: context.l10n.syncSettingsDescription,
+          ),
+          const SizedBox(height: AppTheme.space3),
+          AppPanel(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _panelHeader(
+                  icon: isLoggedIn
+                      ? Icons.cloud_done_outlined
+                      : Icons.cloud_off_outlined,
+                  color: isLoggedIn ? AppTheme.primary : AppTheme.copper,
+                  title: isLoggedIn
+                      ? context.l10n.syncOnline
+                      : context.l10n.syncNotConnected,
+                  body: isLoggedIn
+                      ? context.l10n.signedInAs(session?.username ?? '')
+                      : context.l10n.syncNotConnectedBody,
+                ),
+                if ((session?.serverUrl ?? '').isNotEmpty) ...[
+                  const SizedBox(height: AppTheme.space2),
+                  AppChip(
+                    icon: Icons.dns_outlined,
+                    label: session!.serverUrl,
+                    color: AppTheme.steel,
+                  ),
+                ],
+                const SizedBox(height: AppTheme.space3),
+                TextField(
+                  controller: _serverController,
+                  keyboardType: TextInputType.url,
+                  decoration: InputDecoration(
+                    labelText: context.l10n.serverUrl,
+                    hintText: '47.100.10.10:8090 or https://example.com',
+                  ),
+                ),
+                const SizedBox(height: AppTheme.space2),
+                TextField(
+                  controller: _usernameController,
+                  decoration: InputDecoration(labelText: context.l10n.username),
+                ),
+                const SizedBox(height: AppTheme.space2),
+                TextField(
+                  controller: _passwordController,
+                  obscureText: _obscurePassword,
+                  decoration: InputDecoration(
+                    labelText: context.l10n.password,
+                    suffixIcon: IconButton(
+                      tooltip: _obscurePassword
+                          ? context.l10n.showPassword
+                          : context.l10n.hidePassword,
+                      onPressed: () {
+                        setState(() {
+                          _obscurePassword = !_obscurePassword;
+                        });
+                      },
+                      icon: Icon(
+                        _obscurePassword
+                            ? Icons.visibility_off
+                            : Icons.visibility,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: AppTheme.space3),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: _isSubmitting ? null : _saveOnly,
+                        child: Text(context.l10n.save),
+                      ),
+                    ),
+                    const SizedBox(width: AppTheme.space2),
+                    Expanded(
+                      child: FilledButton(
+                        onPressed: _isSubmitting ? null : _loginOrAskRegister,
+                        child: Text(
+                          _isSubmitting
+                              ? context.l10n.connecting
+                              : context.l10n.connect,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                if (isLoggedIn) ...[
+                  const SizedBox(height: AppTheme.space2),
+                  SizedBox(
+                    width: double.infinity,
+                    child: TextButton.icon(
+                      onPressed: _isSubmitting ? null : _logout,
+                      icon: const Icon(Icons.logout),
+                      label: Text(context.l10n.signOut),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          const SizedBox(height: AppTheme.space3),
+          AppPanel(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _panelHeader(
+                  icon: Icons.tune_outlined,
+                  color: AppTheme.steel,
+                  title: context.l10n.interfaceLanguage,
+                  body: context.l10n.interfaceLanguageBody,
+                ),
+                const SizedBox(height: AppTheme.space3),
+                SegmentedButton<InterfaceLanguageMode>(
+                  segments: [
+                    ButtonSegment(
+                      value: InterfaceLanguageMode.chinese,
+                      label: Text(context.l10n.chineseUi),
+                    ),
+                    ButtonSegment(
+                      value: InterfaceLanguageMode.english,
+                      label: Text(context.l10n.englishUi),
+                    ),
+                    ButtonSegment(
+                      value: InterfaceLanguageMode.japanese,
+                      label: Text(context.l10n.japaneseUi),
+                    ),
+                  ],
+                  selected: {_preferences.interfaceLanguageMode},
+                  onSelectionChanged: (selection) {
+                    _savePreferences(
+                      _preferences.copyWith(
+                        interfaceLanguageMode: selection.first,
+                      ),
+                    );
+                  },
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+      secondary: ListView(
+        children: [
+          const SizedBox(height: AppTheme.space6),
+          AppPanel(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _panelHeader(
+                  icon: Icons.auto_awesome_outlined,
+                  color: AppTheme.primary,
+                  title: context.l10n.aiService,
+                  body: context.l10n.aiServiceBody,
+                ),
+                const SizedBox(height: AppTheme.space3),
+                TextField(
+                  controller: _aiBaseUrlController,
+                  keyboardType: TextInputType.url,
+                  decoration: InputDecoration(
+                    labelText: context.l10n.aiBaseUrl,
+                    hintText: AiSettings.defaultBaseUrl,
+                  ),
+                ),
+                const SizedBox(height: AppTheme.space2),
+                TextField(
+                  controller: _aiModelController,
+                  decoration: InputDecoration(
+                    labelText: context.l10n.model,
+                    hintText: AiSettings.defaultModel,
+                  ),
+                ),
+                const SizedBox(height: AppTheme.space2),
+                TextField(
+                  controller: _aiApiKeyController,
+                  obscureText: _obscureAiApiKey,
+                  decoration: InputDecoration(
+                    labelText: context.l10n.apiKey,
+                    suffixIcon: IconButton(
+                      tooltip: _obscureAiApiKey
+                          ? context.l10n.showApiKey
+                          : context.l10n.hideApiKey,
+                      onPressed: () {
+                        setState(() {
+                          _obscureAiApiKey = !_obscureAiApiKey;
+                        });
+                      },
+                      icon: Icon(
+                        _obscureAiApiKey
+                            ? Icons.visibility_off
+                            : Icons.visibility,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: AppTheme.space3),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.icon(
+                    onPressed: _saveAiSettings,
+                    icon: const Icon(Icons.save_outlined),
+                    label: Text(context.l10n.saveAiSettings),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: AppTheme.space3),
+          AppPanel(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            child: Column(
+              children: [
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(
+                    Icons.info_outline,
+                    color: AppTheme.primary,
+                  ),
+                  title: Text(context.l10n.version),
+                  subtitle: const Text(appVersion),
+                ),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(
+                    Icons.person_outline,
+                    color: AppTheme.primary,
+                  ),
+                  title: Text(context.l10n.developer),
+                  subtitle: const Text(appDeveloperName),
+                ),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(
+                    Icons.code_outlined,
+                    color: AppTheme.primary,
+                  ),
+                  title: Text(context.l10n.githubRepository),
+                  subtitle: const Text(appGithubUrl),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
@@ -258,343 +557,389 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return Scaffold(
       appBar: AppBar(title: Text(context.l10n.settings)),
       body: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(
-            AppTheme.pagePadding,
-            8,
-            AppTheme.pagePadding,
-            28,
-          ),
-          children: [
-            PageIntro(
-              eyebrow: context.l10n.ui('控制面板', 'Control panel', 'コントロールパネル'),
-              title: context.l10n.syncSettingsTitle,
-              description: context.l10n.syncSettingsDescription,
-            ),
-            const SizedBox(height: 18),
-            AppPanel(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+        child: isDesktopLayout(context)
+            ? _buildDesktopSettings(session, isLoggedIn)
+            : ListView(
+                padding: const EdgeInsets.fromLTRB(
+                  AppTheme.pagePadding,
+                  8,
+                  AppTheme.pagePadding,
+                  28,
+                ),
                 children: [
-                  Row(
-                    children: [
-                      Container(
-                        width: 44,
-                        height: 44,
-                        decoration: BoxDecoration(
-                          color: isLoggedIn
-                              ? AppTheme.primarySoft
-                              : AppTheme.copperSoft,
-                          borderRadius: BorderRadius.circular(999),
-                        ),
-                        child: Icon(
-                          isLoggedIn
-                              ? Icons.cloud_done_outlined
-                              : Icons.cloud_off_outlined,
-                          color: isLoggedIn
-                              ? AppTheme.primary
-                              : AppTheme.copper,
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
+                  PageIntro(
+                    eyebrow: context.l10n.ui(
+                      '控制面板',
+                      'Control panel',
+                      'コントロールパネル',
+                    ),
+                    title: context.l10n.syncSettingsTitle,
+                    description: context.l10n.syncSettingsDescription,
+                  ),
+                  const SizedBox(height: 18),
+                  AppPanel(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
                           children: [
-                            Text(
-                              isLoggedIn
-                                  ? context.l10n.syncOnline
-                                  : context.l10n.syncNotConnected,
-                              style: Theme.of(context).textTheme.titleMedium
-                                  ?.copyWith(fontWeight: FontWeight.w700),
+                            Container(
+                              width: 44,
+                              height: 44,
+                              decoration: BoxDecoration(
+                                color: isLoggedIn
+                                    ? AppTheme.primarySoft
+                                    : AppTheme.copperSoft,
+                                borderRadius: BorderRadius.circular(999),
+                              ),
+                              child: Icon(
+                                isLoggedIn
+                                    ? Icons.cloud_done_outlined
+                                    : Icons.cloud_off_outlined,
+                                color: isLoggedIn
+                                    ? AppTheme.primary
+                                    : AppTheme.copper,
+                              ),
                             ),
-                            const SizedBox(height: 3),
-                            Text(
-                              isLoggedIn
-                                  ? context.l10n.signedInAs(
-                                      session?.username ?? '',
-                                    )
-                                  : context.l10n.syncNotConnectedBody,
-                              style: Theme.of(context).textTheme.bodyMedium
-                                  ?.copyWith(
-                                    color: AppTheme.muted,
-                                    height: 1.35,
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    isLoggedIn
+                                        ? context.l10n.syncOnline
+                                        : context.l10n.syncNotConnected,
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .titleMedium
+                                        ?.copyWith(fontWeight: FontWeight.w700),
                                   ),
+                                  const SizedBox(height: 3),
+                                  Text(
+                                    isLoggedIn
+                                        ? context.l10n.signedInAs(
+                                            session?.username ?? '',
+                                          )
+                                        : context.l10n.syncNotConnectedBody,
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .bodyMedium
+                                        ?.copyWith(
+                                          color: AppTheme.muted,
+                                          height: 1.35,
+                                        ),
+                                  ),
+                                ],
+                              ),
                             ),
                           ],
                         ),
-                      ),
-                    ],
-                  ),
-                  if ((session?.serverUrl ?? '').isNotEmpty) ...[
-                    const SizedBox(height: 12),
-                    AppChip(
-                      icon: Icons.dns_outlined,
-                      label: session!.serverUrl,
-                      color: AppTheme.steel,
-                    ),
-                  ],
-                  const SizedBox(height: 18),
-                  TextField(
-                    controller: _serverController,
-                    keyboardType: TextInputType.url,
-                    decoration: InputDecoration(
-                      labelText: context.l10n.serverUrl,
-                      hintText: '47.100.10.10:8090 or https://example.com',
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: _usernameController,
-                    decoration: InputDecoration(
-                      labelText: context.l10n.username,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: _passwordController,
-                    obscureText: _obscurePassword,
-                    decoration: InputDecoration(
-                      labelText: context.l10n.password,
-                      suffixIcon: IconButton(
-                        tooltip: _obscurePassword
-                            ? context.l10n.showPassword
-                            : context.l10n.hidePassword,
-                        onPressed: () {
-                          setState(() {
-                            _obscurePassword = !_obscurePassword;
-                          });
-                        },
-                        icon: Icon(
-                          _obscurePassword
-                              ? Icons.visibility_off
-                              : Icons.visibility,
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: OutlinedButton(
-                          onPressed: _isSubmitting ? null : _saveOnly,
-                          child: Text(context.l10n.save),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: FilledButton(
-                          onPressed: _isSubmitting ? null : _loginOrAskRegister,
-                          child: Text(
-                            _isSubmitting
-                                ? context.l10n.connecting
-                                : context.l10n.connect,
+                        if ((session?.serverUrl ?? '').isNotEmpty) ...[
+                          const SizedBox(height: 12),
+                          AppChip(
+                            icon: Icons.dns_outlined,
+                            label: session!.serverUrl,
+                            color: AppTheme.steel,
+                          ),
+                        ],
+                        const SizedBox(height: 18),
+                        TextField(
+                          controller: _serverController,
+                          keyboardType: TextInputType.url,
+                          decoration: InputDecoration(
+                            labelText: context.l10n.serverUrl,
+                            hintText:
+                                '47.100.10.10:8090 or https://example.com',
                           ),
                         ),
-                      ),
-                    ],
-                  ),
-                  if (isLoggedIn) ...[
-                    const SizedBox(height: 12),
-                    SizedBox(
-                      width: double.infinity,
-                      child: TextButton.icon(
-                        onPressed: _isSubmitting ? null : _logout,
-                        icon: const Icon(Icons.logout),
-                        label: Text(context.l10n.signOut),
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-            ),
-            const SizedBox(height: 12),
-            AppPanel(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Container(
-                        width: 44,
-                        height: 44,
-                        decoration: BoxDecoration(
-                          color: AppTheme.steelSoft,
-                          borderRadius: BorderRadius.circular(999),
+                        const SizedBox(height: 12),
+                        TextField(
+                          controller: _usernameController,
+                          decoration: InputDecoration(
+                            labelText: context.l10n.username,
+                          ),
                         ),
-                        child: const Icon(
-                          Icons.tune_outlined,
-                          color: AppTheme.steel,
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              context.l10n.interfaceLanguage,
-                              style: Theme.of(context).textTheme.titleMedium
-                                  ?.copyWith(fontWeight: FontWeight.w700),
+                        const SizedBox(height: 12),
+                        TextField(
+                          controller: _passwordController,
+                          obscureText: _obscurePassword,
+                          decoration: InputDecoration(
+                            labelText: context.l10n.password,
+                            suffixIcon: IconButton(
+                              tooltip: _obscurePassword
+                                  ? context.l10n.showPassword
+                                  : context.l10n.hidePassword,
+                              onPressed: () {
+                                setState(() {
+                                  _obscurePassword = !_obscurePassword;
+                                });
+                              },
+                              icon: Icon(
+                                _obscurePassword
+                                    ? Icons.visibility_off
+                                    : Icons.visibility,
+                              ),
                             ),
-                            const SizedBox(height: 3),
-                            Text(
-                              context.l10n.interfaceLanguageBody,
-                              style: Theme.of(context).textTheme.bodyMedium
-                                  ?.copyWith(
-                                    color: AppTheme.muted,
-                                    height: 1.35,
-                                  ),
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: OutlinedButton(
+                                onPressed: _isSubmitting ? null : _saveOnly,
+                                child: Text(context.l10n.save),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: FilledButton(
+                                onPressed: _isSubmitting
+                                    ? null
+                                    : _loginOrAskRegister,
+                                child: Text(
+                                  _isSubmitting
+                                      ? context.l10n.connecting
+                                      : context.l10n.connect,
+                                ),
+                              ),
                             ),
                           ],
                         ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                  Text(
-                    context.l10n.interfaceLanguage,
-                    style: Theme.of(context).textTheme.labelLarge,
-                  ),
-                  const SizedBox(height: 8),
-                  SegmentedButton<InterfaceLanguageMode>(
-                    segments: [
-                      ButtonSegment(
-                        value: InterfaceLanguageMode.chinese,
-                        label: Text(context.l10n.chineseUi),
-                      ),
-                      ButtonSegment(
-                        value: InterfaceLanguageMode.english,
-                        label: Text(context.l10n.englishUi),
-                      ),
-                      ButtonSegment(
-                        value: InterfaceLanguageMode.japanese,
-                        label: Text(context.l10n.japaneseUi),
-                      ),
-                    ],
-                    selected: {_preferences.interfaceLanguageMode},
-                    onSelectionChanged: (selection) {
-                      _savePreferences(
-                        _preferences.copyWith(
-                          interfaceLanguageMode: selection.first,
-                        ),
-                      );
-                    },
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 12),
-            AppPanel(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Container(
-                        width: 44,
-                        height: 44,
-                        decoration: BoxDecoration(
-                          color: AppTheme.primarySoft,
-                          borderRadius: BorderRadius.circular(999),
-                        ),
-                        child: const Icon(
-                          Icons.auto_awesome_outlined,
-                          color: AppTheme.primary,
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              context.l10n.aiService,
-                              style: Theme.of(context).textTheme.titleMedium
-                                  ?.copyWith(fontWeight: FontWeight.w700),
+                        if (isLoggedIn) ...[
+                          const SizedBox(height: 12),
+                          SizedBox(
+                            width: double.infinity,
+                            child: TextButton.icon(
+                              onPressed: _isSubmitting ? null : _logout,
+                              icon: const Icon(Icons.logout),
+                              label: Text(context.l10n.signOut),
                             ),
-                            const SizedBox(height: 3),
-                            Text(
-                              context.l10n.aiServiceBody,
-                              style: Theme.of(context).textTheme.bodyMedium
-                                  ?.copyWith(
-                                    color: AppTheme.muted,
-                                    height: 1.35,
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  AppPanel(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Container(
+                              width: 44,
+                              height: 44,
+                              decoration: BoxDecoration(
+                                color: AppTheme.steelSoft,
+                                borderRadius: BorderRadius.circular(999),
+                              ),
+                              child: const Icon(
+                                Icons.tune_outlined,
+                                color: AppTheme.steel,
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    context.l10n.interfaceLanguage,
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .titleMedium
+                                        ?.copyWith(fontWeight: FontWeight.w700),
                                   ),
+                                  const SizedBox(height: 3),
+                                  Text(
+                                    context.l10n.interfaceLanguageBody,
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .bodyMedium
+                                        ?.copyWith(
+                                          color: AppTheme.muted,
+                                          height: 1.35,
+                                        ),
+                                  ),
+                                ],
+                              ),
                             ),
                           ],
                         ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 18),
-                  TextField(
-                    controller: _aiBaseUrlController,
-                    keyboardType: TextInputType.url,
-                    decoration: InputDecoration(
-                      labelText: context.l10n.aiBaseUrl,
-                      hintText: AiSettings.defaultBaseUrl,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: _aiModelController,
-                    decoration: InputDecoration(
-                      labelText: context.l10n.model,
-                      hintText: AiSettings.defaultModel,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: _aiApiKeyController,
-                    obscureText: _obscureAiApiKey,
-                    decoration: InputDecoration(
-                      labelText: context.l10n.apiKey,
-                      suffixIcon: IconButton(
-                        tooltip: _obscureAiApiKey
-                            ? context.l10n.showApiKey
-                            : context.l10n.hideApiKey,
-                        onPressed: () {
-                          setState(() {
-                            _obscureAiApiKey = !_obscureAiApiKey;
-                          });
-                        },
-                        icon: Icon(
-                          _obscureAiApiKey
-                              ? Icons.visibility_off
-                              : Icons.visibility,
+                        const SizedBox(height: 16),
+                        Text(
+                          context.l10n.interfaceLanguage,
+                          style: Theme.of(context).textTheme.labelLarge,
                         ),
-                      ),
+                        const SizedBox(height: 8),
+                        SegmentedButton<InterfaceLanguageMode>(
+                          segments: [
+                            ButtonSegment(
+                              value: InterfaceLanguageMode.chinese,
+                              label: Text(context.l10n.chineseUi),
+                            ),
+                            ButtonSegment(
+                              value: InterfaceLanguageMode.english,
+                              label: Text(context.l10n.englishUi),
+                            ),
+                            ButtonSegment(
+                              value: InterfaceLanguageMode.japanese,
+                              label: Text(context.l10n.japaneseUi),
+                            ),
+                          ],
+                          selected: {_preferences.interfaceLanguageMode},
+                          onSelectionChanged: (selection) {
+                            _savePreferences(
+                              _preferences.copyWith(
+                                interfaceLanguageMode: selection.first,
+                              ),
+                            );
+                          },
+                        ),
+                      ],
                     ),
                   ),
-                  const SizedBox(height: 16),
-                  SizedBox(
-                    width: double.infinity,
-                    child: FilledButton.icon(
-                      onPressed: _saveAiSettings,
-                      icon: const Icon(Icons.save_outlined),
-                      label: Text(context.l10n.saveAiSettings),
+                  const SizedBox(height: 12),
+                  AppPanel(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Container(
+                              width: 44,
+                              height: 44,
+                              decoration: BoxDecoration(
+                                color: AppTheme.primarySoft,
+                                borderRadius: BorderRadius.circular(999),
+                              ),
+                              child: const Icon(
+                                Icons.auto_awesome_outlined,
+                                color: AppTheme.primary,
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    context.l10n.aiService,
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .titleMedium
+                                        ?.copyWith(fontWeight: FontWeight.w700),
+                                  ),
+                                  const SizedBox(height: 3),
+                                  Text(
+                                    context.l10n.aiServiceBody,
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .bodyMedium
+                                        ?.copyWith(
+                                          color: AppTheme.muted,
+                                          height: 1.35,
+                                        ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 18),
+                        TextField(
+                          controller: _aiBaseUrlController,
+                          keyboardType: TextInputType.url,
+                          decoration: InputDecoration(
+                            labelText: context.l10n.aiBaseUrl,
+                            hintText: AiSettings.defaultBaseUrl,
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        TextField(
+                          controller: _aiModelController,
+                          decoration: InputDecoration(
+                            labelText: context.l10n.model,
+                            hintText: AiSettings.defaultModel,
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        TextField(
+                          controller: _aiApiKeyController,
+                          obscureText: _obscureAiApiKey,
+                          decoration: InputDecoration(
+                            labelText: context.l10n.apiKey,
+                            suffixIcon: IconButton(
+                              tooltip: _obscureAiApiKey
+                                  ? context.l10n.showApiKey
+                                  : context.l10n.hideApiKey,
+                              onPressed: () {
+                                setState(() {
+                                  _obscureAiApiKey = !_obscureAiApiKey;
+                                });
+                              },
+                              icon: Icon(
+                                _obscureAiApiKey
+                                    ? Icons.visibility_off
+                                    : Icons.visibility,
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        SizedBox(
+                          width: double.infinity,
+                          child: FilledButton.icon(
+                            onPressed: _saveAiSettings,
+                            icon: const Icon(Icons.save_outlined),
+                            label: Text(context.l10n.saveAiSettings),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  AppPanel(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 12,
+                    ),
+                    child: Column(
+                      children: [
+                        ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          leading: const Icon(
+                            Icons.info_outline,
+                            color: AppTheme.primary,
+                          ),
+                          title: Text(context.l10n.version),
+                          subtitle: const Text(appVersion),
+                        ),
+                        ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          leading: const Icon(
+                            Icons.person_outline,
+                            color: AppTheme.primary,
+                          ),
+                          title: Text(context.l10n.developer),
+                          subtitle: const Text(appDeveloperName),
+                        ),
+                        ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          leading: const Icon(
+                            Icons.code_outlined,
+                            color: AppTheme.primary,
+                          ),
+                          title: Text(context.l10n.githubRepository),
+                          subtitle: const Text(appGithubUrl),
+                        ),
+                      ],
                     ),
                   ),
                 ],
               ),
-            ),
-            const SizedBox(height: 12),
-            AppPanel(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-              child: ListTile(
-                contentPadding: EdgeInsets.zero,
-                leading: const Icon(
-                  Icons.info_outline,
-                  color: AppTheme.primary,
-                ),
-                title: Text(context.l10n.version),
-                subtitle: const Text(appVersion),
-              ),
-            ),
-          ],
-        ),
       ),
     );
   }

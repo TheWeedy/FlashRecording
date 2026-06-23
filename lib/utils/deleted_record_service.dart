@@ -6,6 +6,8 @@ class DeletedRecordService {
   static const entityTimeEvent = 'time_event';
   static const entityTodoItem = 'todo_item';
   static const entityNote = 'note';
+  static const entityFileItem = 'file_item';
+  static const entityFileTag = 'file_tag';
 
   Future<void> recordDeletion({
     required String entityType,

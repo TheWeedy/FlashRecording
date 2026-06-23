@@ -90,6 +90,7 @@ class _FileDetailScreenState extends State<FileDetailScreen> {
   bool _isLoadingText = true;
   bool _isRefreshingMarkdown = false;
   bool _isRefreshingOcr = false;
+  bool _isGeneratingAiTitle = false;
   bool _livePageLoaded = false;
   ImageOcrLanguageMode _ocrLanguageMode = ImageOcrLanguageMode.chineseEnglish;
   InAppWebViewController? _webController;
@@ -207,6 +208,35 @@ class _FileDetailScreenState extends State<FileDetailScreen> {
     controller.dispose();
   }
 
+  Future<void> _generateAiTitle() async {
+    if (_isGeneratingAiTitle) {
+      return;
+    }
+    setState(() {
+      _isGeneratingAiTitle = true;
+    });
+    try {
+      final updated = await _service.generateAiTitleForItem(_item);
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _item = updated;
+      });
+      _showMessage(context.l10n.aiTitleUpdatedCount(1));
+    } on Object catch (error) {
+      if (mounted) {
+        _showMessage(context.l10n.localizeError('$error'));
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isGeneratingAiTitle = false;
+        });
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final item = _item;
@@ -294,9 +324,19 @@ class _FileDetailScreenState extends State<FileDetailScreen> {
               _openExternally();
             } else if (value == 'source') {
               _openSource();
+            } else if (value == 'ai-title') {
+              _generateAiTitle();
             }
           },
           itemBuilder: (context) => [
+            PopupMenuItem(
+              value: 'ai-title',
+              enabled: !_isGeneratingAiTitle,
+              child: _MenuAction(
+                icon: Icons.auto_awesome_outlined,
+                label: context.l10n.generateAiTitle,
+              ),
+            ),
             if (item.originalUrl.isNotEmpty)
               PopupMenuItem(
                 value: 'copy-url',

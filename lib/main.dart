@@ -22,6 +22,7 @@ import 'utils/cloud_sync_service.dart';
 import 'utils/file_library_service.dart';
 import 'utils/notification_service.dart';
 import 'utils/persistence.dart';
+import 'widgets/responsive_scaffold.dart';
 
 const _welcomeSeenKey = 'welcome_seen_v3';
 
@@ -119,30 +120,47 @@ class MyHomePage extends StatefulWidget {
   State<MyHomePage> createState() => _MyHomePageState();
 }
 
-class _MyHomePageState extends State<MyHomePage> {
-  late final PageController _pageController;
+class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
+  static const _foregroundSyncInterval = Duration(minutes: 1);
+
   final FileLibraryService _fileLibraryService = FileLibraryService();
+  final GlobalKey<NoteListScreenState> _notesKey =
+      GlobalKey<NoteListScreenState>();
+  final GlobalKey<TodoScreenState> _todosKey = GlobalKey<TodoScreenState>();
   final GlobalKey<FilesScreenState> _filesKey = GlobalKey<FilesScreenState>();
   int _currentIndex = 0;
   List<TimeEvent> _events = [];
   Set<String> _selectedIds = {};
   bool _isSelectionMode = false;
   bool _isLoading = true;
+  bool _isRefreshingCurrentPage = false;
+  Timer? _foregroundSyncTimer;
   StreamSubscription<List<SharedMediaFile>>? _shareSubscription;
 
   @override
   void initState() {
     super.initState();
-    _pageController = PageController();
+    WidgetsBinding.instance.addObserver(this);
     _bootstrap();
     _listenForSharedContent();
+    _foregroundSyncTimer = Timer.periodic(_foregroundSyncInterval, (_) {
+      unawaited(_refreshCurrentPage(force: false));
+    });
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _foregroundSyncTimer?.cancel();
     _shareSubscription?.cancel();
-    _pageController.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      unawaited(_refreshCurrentPage(force: false));
+    }
   }
 
   Future<void> _bootstrap() async {
@@ -153,6 +171,33 @@ class _MyHomePageState extends State<MyHomePage> {
   Future<void> _syncAndReload() async {
     await CloudSyncService.instance.syncNow();
     await _loadEvents();
+  }
+
+  Future<void> _refreshEntries({bool force = true}) async {
+    await CloudSyncService.instance.syncNow(force: force);
+    await _loadEvents();
+  }
+
+  Future<void> _refreshCurrentPage({bool force = true}) async {
+    if (_isRefreshingCurrentPage || _isSelectionMode) {
+      return;
+    }
+    _isRefreshingCurrentPage = true;
+    try {
+      switch (_currentIndex) {
+        case 0:
+        case 1:
+          await _refreshEntries(force: force);
+        case 2:
+          await _notesKey.currentState?.refreshFromCloud(force: force);
+        case 3:
+          await _todosKey.currentState?.refreshFromCloud(force: force);
+        case 4:
+          await _filesKey.currentState?.refreshFromCloud(force: force);
+      }
+    } finally {
+      _isRefreshingCurrentPage = false;
+    }
   }
 
   Future<void> _loadEvents() async {
@@ -228,19 +273,7 @@ class _MyHomePageState extends State<MyHomePage> {
     setState(() {
       _currentIndex = filesIndex;
     });
-    if (_pageController.hasClients) {
-      _pageController.animateToPage(
-        filesIndex,
-        duration: AppTheme.medium,
-        curve: Curves.easeOutCubic,
-      );
-      return;
-    }
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (_pageController.hasClients) {
-        _pageController.jumpToPage(filesIndex);
-      }
-    });
+    unawaited(_refreshCurrentPage(force: false));
   }
 
   Future<void> _saveEvents() async {
@@ -315,11 +348,7 @@ class _MyHomePageState extends State<MyHomePage> {
     setState(() {
       _currentIndex = index;
     });
-    await _pageController.animateToPage(
-      index,
-      duration: AppTheme.medium,
-      curve: Curves.easeOutCubic,
-    );
+    unawaited(_refreshCurrentPage(force: false));
   }
 
   @override
@@ -333,14 +362,19 @@ class _MyHomePageState extends State<MyHomePage> {
       EventListScreen(
         events: _events,
         onAdd: _addEvent,
+        onRefresh: () => _refreshEntries(force: true),
         onDeleteSelected: _deleteSelected,
+        onPerformDelete: _performDelete,
         isSelectionMode: _isSelectionMode,
         selectedIds: _selectedIds,
         onToggleSelectionMode: _toggleSelectionMode,
       ),
-      StatisticsScreen(events: _events),
-      const NoteListScreen(),
-      const TodoScreen(),
+      StatisticsScreen(
+        events: _events,
+        onRefresh: () => _refreshEntries(force: true),
+      ),
+      NoteListScreen(key: _notesKey),
+      TodoScreen(key: _todosKey),
       FilesScreen(key: _filesKey),
     ];
 
@@ -379,130 +413,38 @@ class _MyHomePageState extends State<MyHomePage> {
           _toggleSelectionMode();
         }
       },
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          final isWide = constraints.maxWidth >= 700;
-
-          final pageView = PageView(
-            controller: _pageController,
-            onPageChanged: (index) {
-              if (_isSelectionMode && index != 0) {
-                _toggleSelectionMode();
-              }
-              setState(() {
-                _currentIndex = index;
-              });
-            },
-            children: screens,
-          );
-
-          if (isWide) {
-            return Scaffold(
-              body: Row(
-                children: [
-                  Container(
-                    decoration: BoxDecoration(
-                      color: AppTheme.surface,
-                      border: const Border(
-                        right: BorderSide(color: AppTheme.border),
-                      ),
-                    ),
-                    child: NavigationRail(
-                      selectedIndex: _currentIndex,
-                      onDestinationSelected: _onNavigate,
-                      labelType: NavigationRailLabelType.all,
-                      backgroundColor: AppTheme.surface,
-                      indicatorColor: AppTheme.primarySoft,
-                      selectedIconTheme: const IconThemeData(
-                        color: AppTheme.primary,
-                      ),
-                      unselectedIconTheme: const IconThemeData(
-                        color: AppTheme.muted,
-                      ),
-                      selectedLabelTextStyle: const TextStyle(
-                        color: AppTheme.primary,
-                        fontWeight: FontWeight.w700,
-                        fontSize: 12,
-                      ),
-                      unselectedLabelTextStyle: const TextStyle(
-                        color: AppTheme.muted,
-                        fontWeight: FontWeight.w600,
-                        fontSize: 12,
-                      ),
-                      leading: const SizedBox(height: 12),
-                      destinations: navItems,
-                    ),
-                  ),
-                  Expanded(child: pageView),
-                ],
-              ),
-              floatingActionButton: _currentIndex == 0 && _isSelectionMode
-                  ? FloatingActionButton(
-                      onPressed: _performDelete,
-                      backgroundColor: AppTheme.danger,
-                      child: const Icon(Icons.delete),
-                    )
-                  : null,
-            );
-          }
-
-          return Scaffold(
-            body: pageView,
-            bottomNavigationBar: SafeArea(
-              child: Container(
-                margin: const EdgeInsets.fromLTRB(14, 0, 14, 12),
-                decoration: BoxDecoration(
-                  color: AppTheme.surface,
-                  borderRadius: BorderRadius.circular(18),
-                  border: Border.all(color: AppTheme.border),
-                  boxShadow: AppTheme.cardShadow,
-                ),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(18),
-                  child: BottomNavigationBar(
-                    backgroundColor: AppTheme.surface,
-                    currentIndex: _currentIndex,
-                    onTap: _onNavigate,
-                    items: [
-                      BottomNavigationBarItem(
-                        icon: const Icon(Icons.view_agenda_outlined),
-                        activeIcon: const Icon(Icons.view_agenda),
-                        label: l10n.navEntries,
-                      ),
-                      BottomNavigationBarItem(
-                        icon: const Icon(Icons.query_stats_outlined),
-                        activeIcon: const Icon(Icons.query_stats),
-                        label: l10n.navInsights,
-                      ),
-                      BottomNavigationBarItem(
-                        icon: const Icon(Icons.sticky_note_2_outlined),
-                        activeIcon: const Icon(Icons.sticky_note_2),
-                        label: l10n.navNotes,
-                      ),
-                      BottomNavigationBarItem(
-                        icon: const Icon(Icons.checklist_outlined),
-                        activeIcon: const Icon(Icons.checklist),
-                        label: l10n.navTasks,
-                      ),
-                      BottomNavigationBarItem(
-                        icon: const Icon(Icons.folder_copy_outlined),
-                        activeIcon: const Icon(Icons.folder_copy),
-                        label: l10n.navFiles,
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-            floatingActionButton: _currentIndex == 0 && _isSelectionMode
-                ? FloatingActionButton(
-                    onPressed: _performDelete,
-                    backgroundColor: AppTheme.danger,
-                    child: const Icon(Icons.delete),
-                  )
-                : null,
-          );
-        },
+      child: ResponsiveScaffold(
+        currentIndex: _currentIndex,
+        onDestinationSelected: _onNavigate,
+        destinations: navItems,
+        mobileItems: [
+          BottomNavigationBarItem(
+            icon: const Icon(Icons.view_agenda_outlined),
+            activeIcon: const Icon(Icons.view_agenda),
+            label: l10n.navEntries,
+          ),
+          BottomNavigationBarItem(
+            icon: const Icon(Icons.query_stats_outlined),
+            activeIcon: const Icon(Icons.query_stats),
+            label: l10n.navInsights,
+          ),
+          BottomNavigationBarItem(
+            icon: const Icon(Icons.sticky_note_2_outlined),
+            activeIcon: const Icon(Icons.sticky_note_2),
+            label: l10n.navNotes,
+          ),
+          BottomNavigationBarItem(
+            icon: const Icon(Icons.checklist_outlined),
+            activeIcon: const Icon(Icons.checklist),
+            label: l10n.navTasks,
+          ),
+          BottomNavigationBarItem(
+            icon: const Icon(Icons.folder_copy_outlined),
+            activeIcon: const Icon(Icons.folder_copy),
+            label: l10n.navFiles,
+          ),
+        ],
+        body: IndexedStack(index: _currentIndex, children: screens),
       ),
     );
   }

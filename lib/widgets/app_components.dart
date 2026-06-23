@@ -8,7 +8,7 @@ class FadeSlideIn extends StatelessWidget {
     super.key,
     required this.child,
     this.delay = Duration.zero,
-    this.offset = const Offset(0, 0.06),
+    this.offset = AppTheme.motionOffset,
   });
 
   final Widget child;
@@ -20,7 +20,7 @@ class FadeSlideIn extends StatelessWidget {
     return TweenAnimationBuilder<double>(
       tween: Tween(begin: 0, end: 1),
       duration: AppTheme.medium + delay,
-      curve: Curves.easeOutCubic,
+      curve: AppTheme.motionCurve,
       builder: (context, value, child) {
         final easedValue = value.clamp(0.0, 1.0);
         return Opacity(
@@ -36,6 +36,385 @@ class FadeSlideIn extends StatelessWidget {
   }
 }
 
+Future<T?> showAppActionSheet<T>({
+  required BuildContext context,
+  required WidgetBuilder builder,
+  bool isScrollControlled = false,
+}) {
+  return showModalBottomSheet<T>(
+    context: context,
+    showDragHandle: true,
+    isScrollControlled: isScrollControlled,
+    sheetAnimationStyle: const AnimationStyle(
+      duration: AppTheme.medium,
+      reverseDuration: AppTheme.fast,
+    ),
+    builder: (sheetContext) {
+      return SafeArea(
+        child: Padding(
+          padding: EdgeInsets.only(
+            bottom: MediaQuery.viewInsetsOf(sheetContext).bottom,
+          ),
+          child: builder(sheetContext),
+        ),
+      );
+    },
+  );
+}
+
+class ContextualFabAction {
+  const ContextualFabAction({
+    required this.icon,
+    required this.tooltip,
+    required this.onPressed,
+    this.label,
+    this.backgroundColor,
+    this.foregroundColor,
+  });
+
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback? onPressed;
+  final String? label;
+  final Color? backgroundColor;
+  final Color? foregroundColor;
+}
+
+class ContextualActionFab extends StatelessWidget {
+  const ContextualActionFab({
+    super.key,
+    required this.heroTag,
+    required this.tooltip,
+    required this.icon,
+    required this.onPressed,
+    this.isDestructive = false,
+    this.actions = const [],
+  });
+
+  final Object heroTag;
+  final String tooltip;
+  final IconData icon;
+  final VoidCallback? onPressed;
+  final bool isDestructive;
+  final List<ContextualFabAction> actions;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(right: 2, bottom: 12),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          AnimatedSwitcher(
+            duration: AppTheme.medium,
+            switchInCurve: AppTheme.motionCurve,
+            switchOutCurve: Curves.easeInCubic,
+            transitionBuilder: (child, animation) {
+              final curved = CurvedAnimation(
+                parent: animation,
+                curve: AppTheme.motionCurve,
+                reverseCurve: Curves.easeInCubic,
+              );
+              return FadeTransition(
+                opacity: curved,
+                child: ScaleTransition(
+                  scale: Tween<double>(begin: 0.82, end: 1).animate(curved),
+                  child: SlideTransition(
+                    position: Tween<Offset>(
+                      begin: const Offset(0, 0.16),
+                      end: Offset.zero,
+                    ).animate(curved),
+                    child: child,
+                  ),
+                ),
+              );
+            },
+            child: Column(
+              key: ValueKey('actions-${actions.length}-$isDestructive'),
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                for (var i = 0; i < actions.length; i++) ...[
+                  _ContextualSmallFab(
+                    action: actions[i],
+                    heroTag: '$heroTag-action-$i',
+                    delay: Duration(milliseconds: 32 * i),
+                  ),
+                  const SizedBox(height: 12),
+                ],
+              ],
+            ),
+          ),
+          AnimatedSwitcher(
+            duration: AppTheme.medium,
+            switchInCurve: AppTheme.motionCurve,
+            switchOutCurve: Curves.easeInCubic,
+            transitionBuilder: (child, animation) {
+              final curved = CurvedAnimation(
+                parent: animation,
+                curve: AppTheme.motionCurve,
+                reverseCurve: Curves.easeInCubic,
+              );
+              return FadeTransition(
+                opacity: curved,
+                child: ScaleTransition(
+                  scale: Tween<double>(begin: 0.72, end: 1).animate(curved),
+                  child: RotationTransition(
+                    turns: Tween<double>(begin: -0.08, end: 0).animate(curved),
+                    child: child,
+                  ),
+                ),
+              );
+            },
+            child: FloatingActionButton(
+              key: ValueKey('$heroTag-$icon-$isDestructive'),
+              heroTag: heroTag,
+              tooltip: tooltip,
+              onPressed: onPressed,
+              backgroundColor: isDestructive ? AppTheme.danger : null,
+              child: Icon(icon, size: 25),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ContextualSmallFab extends StatelessWidget {
+  const _ContextualSmallFab({
+    required this.action,
+    required this.heroTag,
+    required this.delay,
+  });
+
+  final ContextualFabAction action;
+  final Object heroTag;
+  final Duration delay;
+
+  @override
+  Widget build(BuildContext context) {
+    return FadeSlideIn(
+      delay: delay,
+      offset: const Offset(0, 0.08),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (action.label != null) ...[
+            DecoratedBox(
+              decoration: BoxDecoration(
+                color: AppTheme.surface,
+                borderRadius: BorderRadius.circular(AppTheme.radiusControl),
+                border: Border.all(color: AppTheme.border),
+                boxShadow: AppTheme.cardShadow,
+              ),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 7,
+                ),
+                child: Text(
+                  action.label!,
+                  style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                    color: AppTheme.ink,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+          ],
+          FloatingActionButton(
+            heroTag: heroTag,
+            tooltip: action.tooltip,
+            onPressed: action.onPressed,
+            backgroundColor: action.backgroundColor ?? AppTheme.surface,
+            foregroundColor: action.foregroundColor ?? AppTheme.ink,
+            child: Icon(action.icon, size: 25),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class AppTuckedEndFabLocation extends FloatingActionButtonLocation {
+  const AppTuckedEndFabLocation();
+
+  @override
+  Offset getOffset(ScaffoldPrelayoutGeometry scaffoldGeometry) {
+    return FloatingActionButtonLocation.endFloat.getOffset(scaffoldGeometry);
+  }
+}
+
+class AppSheetHeader extends StatelessWidget {
+  const AppSheetHeader({
+    super.key,
+    required this.icon,
+    required this.title,
+    required this.description,
+    this.accent = AppTheme.primary,
+  });
+
+  final IconData icon;
+  final String title;
+  final String description;
+  final Color accent;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context).textTheme;
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        FlatIllustrationBadge(icon: icon, color: accent, size: 48),
+        const SizedBox(width: AppTheme.space3),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: theme.titleLarge?.copyWith(
+                  color: AppTheme.ink,
+                  fontWeight: FontWeight.w900,
+                  height: 1.12,
+                ),
+              ),
+              const SizedBox(height: 5),
+              Text(
+                description,
+                style: theme.bodyMedium?.copyWith(
+                  color: AppTheme.muted,
+                  height: 1.38,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class FlatIllustrationBadge extends StatelessWidget {
+  const FlatIllustrationBadge({
+    super.key,
+    required this.icon,
+    this.color = AppTheme.primary,
+    this.size = 44,
+  });
+
+  final IconData icon;
+  final Color color;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox.square(
+      dimension: size,
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          Positioned.fill(
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                color: color.withValues(alpha: 0.14),
+                borderRadius: BorderRadius.circular(AppTheme.radiusControl),
+              ),
+            ),
+          ),
+          Positioned(
+            right: -3,
+            bottom: -3,
+            child: Container(
+              width: size * 0.36,
+              height: size * 0.36,
+              decoration: BoxDecoration(
+                color: AppTheme.sunshine,
+                borderRadius: BorderRadius.circular(AppTheme.radiusPill),
+                border: Border.all(color: AppTheme.surface, width: 2),
+              ),
+            ),
+          ),
+          Center(
+            child: Icon(icon, color: color, size: size * 0.5),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class AppActionTile extends StatelessWidget {
+  const AppActionTile({
+    super.key,
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+    this.accent = AppTheme.primary,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final VoidCallback? onTap;
+  final Color accent;
+
+  @override
+  Widget build(BuildContext context) {
+    return AppPanel(
+      padding: EdgeInsets.zero,
+      color: AppTheme.raisedSurface,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(AppTheme.radiusCard),
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Row(
+            children: [
+              FlatIllustrationBadge(icon: icon, color: accent, size: 42),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                        color: AppTheme.ink,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      subtitle,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: AppTheme.muted,
+                        height: 1.3,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              Icon(Icons.chevron_right_rounded, color: accent, size: 22),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class PageIntro extends StatelessWidget {
   const PageIntro({
     super.key,
@@ -43,54 +422,102 @@ class PageIntro extends StatelessWidget {
     required this.title,
     required this.description,
     this.trailing,
+    this.showContext = true,
+    this.showCompactMeta = false,
   });
 
   final String eyebrow;
   final String title;
   final String description;
   final Widget? trailing;
+  final bool showContext;
+  final bool showCompactMeta;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context).textTheme;
     return FadeSlideIn(
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  eyebrow.toUpperCase(),
-                  style: theme.labelSmall?.copyWith(
-                    color: AppTheme.copper,
-                    fontWeight: FontWeight.w700,
-                  ),
+      child: DecoratedBox(
+        decoration: const BoxDecoration(
+          border: Border(bottom: BorderSide(color: AppTheme.border)),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (showContext) ...[
+                      Text(
+                        eyebrow.toUpperCase(),
+                        style: AppTheme.operationText(
+                          theme.labelSmall?.copyWith(
+                            color: AppTheme.primary,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 3),
+                    ],
+                    Text(
+                      title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.w800,
+                        color: AppTheme.ink,
+                        height: 1.06,
+                      ),
+                    ),
+                    if (showContext) ...[
+                      const SizedBox(height: 5),
+                      Text(
+                        description,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppTheme.operationText(
+                          theme.bodySmall?.copyWith(
+                            color: AppTheme.muted,
+                            height: 1.35,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ],
+                    if (!showContext &&
+                        showCompactMeta &&
+                        description.trim().isNotEmpty) ...[
+                      const SizedBox(height: 5),
+                      Text(
+                        description,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppTheme.operationText(
+                          theme.bodySmall?.copyWith(
+                            color: AppTheme.muted,
+                            height: 1.2,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
                 ),
-                const SizedBox(height: 5),
-                Text(
-                  title,
-                  style: theme.headlineSmall?.copyWith(
-                    fontWeight: FontWeight.w700,
-                    color: AppTheme.ink,
-                    height: 1.08,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  description,
-                  style: theme.bodyMedium?.copyWith(
-                    color: AppTheme.muted,
-                    height: 1.45,
-                    fontWeight: FontWeight.w500,
-                  ),
+              ),
+              if (trailing != null) ...[
+                const SizedBox(width: 10),
+                FadeSlideIn(
+                  delay: const Duration(milliseconds: 70),
+                  offset: const Offset(0.02, 0),
+                  child: trailing!,
                 ),
               ],
-            ),
+            ],
           ),
-          if (trailing != null) ...[const SizedBox(width: 12), trailing!],
-        ],
+        ),
       ),
     );
   }
@@ -100,7 +527,7 @@ class AppPanel extends StatelessWidget {
   const AppPanel({
     super.key,
     required this.child,
-    this.padding = const EdgeInsets.all(16),
+    this.padding = const EdgeInsets.all(12),
     this.color = AppTheme.surface,
     this.borderColor = AppTheme.border,
   });
@@ -112,12 +539,14 @@ class AppPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return DecoratedBox(
+    return AnimatedContainer(
+      duration: AppTheme.fast,
+      curve: AppTheme.motionCurve,
       decoration: BoxDecoration(
         color: color,
         borderRadius: BorderRadius.circular(AppTheme.radiusCard),
         border: Border.all(color: borderColor),
-        boxShadow: AppTheme.cardShadow,
+        boxShadow: color == AppTheme.surface ? AppTheme.cardShadow : null,
       ),
       child: Padding(padding: padding, child: child),
     );
@@ -142,38 +571,59 @@ class MetricTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context).textTheme;
     return AppPanel(
-      padding: const EdgeInsets.all(14),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      padding: const EdgeInsets.all(12),
+      child: Stack(
         children: [
+          Positioned(
+            right: -16,
+            top: -18,
+            child: Container(
+              width: 58,
+              height: 58,
+              decoration: BoxDecoration(
+                color: accent.withValues(alpha: 0.08),
+                borderRadius: BorderRadius.circular(AppTheme.radiusPill),
+              ),
+            ),
+          ),
           Row(
             children: [
               if (icon != null) ...[
-                Icon(icon, size: 17, color: accent),
-                const SizedBox(width: 7),
+                FlatIllustrationBadge(icon: icon!, color: accent, size: 38),
+                const SizedBox(width: 10),
               ],
               Expanded(
-                child: Text(
-                  label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.labelMedium?.copyWith(
-                    color: AppTheme.muted,
-                    fontWeight: FontWeight.w700,
-                  ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      value,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppTheme.operationText(
+                        theme.titleLarge?.copyWith(
+                          fontWeight: FontWeight.w900,
+                          color: AppTheme.ink,
+                          height: 1.02,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppTheme.operationText(
+                        theme.labelSmall?.copyWith(
+                          color: AppTheme.muted,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ],
-          ),
-          const SizedBox(height: 9),
-          Text(
-            value,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: theme.titleLarge?.copyWith(
-              fontWeight: FontWeight.w700,
-              color: AppTheme.ink,
-            ),
           ),
         ],
       ),
@@ -198,6 +648,7 @@ class EmptyState extends StatelessWidget {
     final theme = Theme.of(context).textTheme;
     return AppPanel(
       color: AppTheme.raisedSurface,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -214,7 +665,7 @@ class EmptyState extends StatelessWidget {
           Text(
             title,
             textAlign: TextAlign.center,
-            style: theme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+            style: theme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
           ),
           const SizedBox(height: 6),
           Text(
@@ -222,7 +673,7 @@ class EmptyState extends StatelessWidget {
             textAlign: TextAlign.center,
             style: theme.bodyMedium?.copyWith(
               color: AppTheme.muted,
-              height: 1.45,
+              height: 1.35,
             ),
           ),
         ],
@@ -272,10 +723,14 @@ class QuietIconButton extends StatelessWidget {
       onPressed: onPressed,
       icon: Icon(icon),
       color: color,
+      iconSize: 19,
+      constraints: const BoxConstraints.tightFor(width: 40, height: 40),
+      padding: EdgeInsets.zero,
       style: IconButton.styleFrom(
-        backgroundColor: AppTheme.raisedSurface,
+        backgroundColor: AppTheme.surface,
+        disabledForegroundColor: AppTheme.faint,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(AppTheme.radiusControl),
+          borderRadius: BorderRadius.circular(10),
           side: const BorderSide(color: AppTheme.border),
         ),
       ),
@@ -300,16 +755,17 @@ class AppChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final chip = Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(999),
+        borderRadius: BorderRadius.circular(7),
+        border: Border.all(color: color.withValues(alpha: 0.14)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           if (icon != null) ...[
-            Icon(icon, size: 14, color: color),
+            Icon(icon, size: 13, color: color),
             const SizedBox(width: 5),
           ],
           if (maxWidth == null)
@@ -319,7 +775,7 @@ class AppChip extends StatelessWidget {
               overflow: TextOverflow.ellipsis,
               style: Theme.of(context).textTheme.labelMedium?.copyWith(
                 color: color,
-                fontWeight: FontWeight.w700,
+                fontWeight: FontWeight.w800,
               ),
             )
           else
@@ -330,7 +786,7 @@ class AppChip extends StatelessWidget {
                 overflow: TextOverflow.ellipsis,
                 style: Theme.of(context).textTheme.labelMedium?.copyWith(
                   color: color,
-                  fontWeight: FontWeight.w700,
+                  fontWeight: FontWeight.w800,
                 ),
               ),
             ),

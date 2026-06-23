@@ -14,6 +14,9 @@ import 'package:sqflite/sqflite.dart';
 import 'package:syncfusion_flutter_pdf/pdf.dart';
 
 import '../models/file_item.dart';
+import 'ai_service.dart';
+import 'cloud_sync_service.dart';
+import 'deleted_record_service.dart';
 import 'local_database.dart';
 
 enum ImageOcrLanguageMode { chineseEnglish, japaneseEnglish, englishOnly }
@@ -27,7 +30,20 @@ class FileLibraryException implements Exception {
   String toString() => message;
 }
 
+class FileTitleBatchResult {
+  const FileTitleBatchResult({
+    required this.updatedCount,
+    required this.skippedCount,
+  });
+
+  final int updatedCount;
+  final int skippedCount;
+}
+
 class FileLibraryService {
+  final DeletedRecordService _deletedRecordService = DeletedRecordService();
+  final AiService _aiService = AiService();
+
   bool get _supportsImageOcr => Platform.isAndroid || Platform.isIOS;
 
   Future<List<FileItem>> loadItems({
@@ -59,7 +75,7 @@ class FileLibraryService {
     final db = await LocalDatabase.instance.database;
     final rows = await db.query(
       'file_tags',
-      orderBy: 'name COLLATE NOCASE ASC',
+      orderBy: 'sort_order ASC, name COLLATE NOCASE ASC',
     );
     return rows.map(_mapTag).toList();
   }
@@ -76,6 +92,37 @@ class FileLibraryService {
       return null;
     }
     return _mapItem(rows.first);
+  }
+
+  Future<List<FileItem>> loadAiTitlePendingItems() async {
+    final db = await LocalDatabase.instance.database;
+    final rows = await db.query(
+      'file_items',
+      where:
+          'archived_at IS NULL AND (ai_title_generated_at IS NULL OR updated_at > ai_title_generated_at)',
+      orderBy: 'updated_at DESC',
+    );
+    final items = <FileItem>[];
+    for (final row in rows) {
+      items.add(await _mapItem(row));
+    }
+    return items;
+  }
+
+  Future<FileTitleBatchResult> generateAiTitlesForPendingFiles() async {
+    final items = await loadAiTitlePendingItems();
+    if (items.isEmpty) {
+      return const FileTitleBatchResult(updatedCount: 0, skippedCount: 0);
+    }
+    final titles = await _requestAiTitles(items);
+    await _applyAiTitles(items, titles);
+    return FileTitleBatchResult(updatedCount: items.length, skippedCount: 0);
+  }
+
+  Future<FileItem> generateAiTitleForItem(FileItem item) async {
+    final titles = await _requestAiTitles([item]);
+    await _applyAiTitles([item], titles);
+    return await findById(item.id) ?? item;
   }
 
   Future<FileItem> addText({
@@ -349,10 +396,12 @@ class FileLibraryService {
     );
     final directory = await _ensureDirectory('text');
     final markdownFile = File(p.join(directory.path, '$id.md'));
-    await markdownFile.writeAsString(extracted.markdown);
+    final ocrTitle = _titleFromOcr(extracted.suggestedTitle, originalName);
+    final titledMarkdown = _withMarkdownTitle(extracted.markdown, ocrTitle);
+    await markdownFile.writeAsString(titledMarkdown);
     final item = FileItem(
       id: id,
-      title: originalName,
+      title: ocrTitle,
       kind: FileItemKind.image,
       mimeType: mimeType,
       originalUrl: '',
@@ -502,11 +551,15 @@ $body
     if (!await markdownFile.parent.exists()) {
       await markdownFile.parent.create(recursive: true);
     }
-    await markdownFile.writeAsString(extracted.markdown);
+    final ocrTitle = _titleFromOcr(extracted.suggestedTitle, item.title);
+    await markdownFile.writeAsString(
+      _withMarkdownTitle(extracted.markdown, ocrTitle),
+    );
     final db = await LocalDatabase.instance.database;
     await db.update(
       'file_items',
       {
+        'title': ocrTitle,
         'markdown_path': markdownFile.path,
         'plain_text_preview': _preview(extracted.plainText),
         'updated_at': DateTime.now().toIso8601String(),
@@ -514,6 +567,7 @@ $body
       where: 'id = ?',
       whereArgs: [item.id],
     );
+    CloudSyncService.instance.scheduleSync();
     return await findById(item.id) ?? item;
   }
 
@@ -618,6 +672,7 @@ $body
         ? ''
         : '\n\n> OCR warnings: ${failures.join(' | ')}';
     return _ExtractedOcr(
+      suggestedTitle: _suggestOcrTitle(parts, fallback: title),
       plainText: body,
       markdown:
           '''
@@ -645,12 +700,14 @@ $body$failureBlock
       throw const FileLibraryException('File name cannot be empty.');
     }
     final db = await LocalDatabase.instance.database;
+    final now = DateTime.now().toIso8601String();
     await db.update(
       'file_items',
-      {'title': normalized, 'updated_at': DateTime.now().toIso8601String()},
+      {'title': normalized, 'updated_at': now, 'ai_title_generated_at': now},
       where: 'id = ?',
       whereArgs: [id],
     );
+    CloudSyncService.instance.scheduleSync();
   }
 
   Future<void> renameTag({required String id, required String name}) async {
@@ -668,18 +725,31 @@ $body$failureBlock
     if (existing.isNotEmpty) {
       throw const FileLibraryException('A tag with this name already exists.');
     }
+    final now = DateTime.now().toIso8601String();
     await db.update(
       'file_tags',
-      {'name': normalized},
+      {'name': normalized, 'updated_at': now},
       where: 'id = ?',
       whereArgs: [id],
     );
+    await _touchItemsWithTag(db, id, now);
+    CloudSyncService.instance.scheduleSync();
   }
 
   Future<void> deleteTag(String id) async {
     final db = await LocalDatabase.instance.database;
-    await db.delete('file_item_tags', where: 'tag_id = ?', whereArgs: [id]);
-    await db.delete('file_tags', where: 'id = ?', whereArgs: [id]);
+    final now = DateTime.now().toIso8601String();
+    await db.transaction((txn) async {
+      await _touchItemsWithTag(txn, id, now);
+      await txn.delete('file_item_tags', where: 'tag_id = ?', whereArgs: [id]);
+      await txn.delete('file_tags', where: 'id = ?', whereArgs: [id]);
+      await _deletedRecordService.recordDeletion(
+        entityType: DeletedRecordService.entityFileTag,
+        entityId: id,
+        executor: txn,
+      );
+    });
+    CloudSyncService.instance.scheduleSync();
   }
 
   Future<void> archiveItems(Iterable<String> ids) async {
@@ -697,6 +767,7 @@ $body$failureBlock
       where: 'id IN ($placeholders)',
       whereArgs: ids.toList(),
     );
+    CloudSyncService.instance.scheduleSync();
   }
 
   Future<void> restoreItems(Iterable<String> ids) async {
@@ -711,37 +782,49 @@ $body$failureBlock
       where: 'id IN ($placeholders)',
       whereArgs: ids.toList(),
     );
+    CloudSyncService.instance.scheduleSync();
   }
 
   Future<void> deleteItems(Iterable<String> ids) async {
     if (ids.isEmpty) {
       return;
     }
+    final idList = ids.toList();
     final db = await LocalDatabase.instance.database;
     final items = <FileItem>[];
-    for (final id in ids) {
+    for (final id in idList) {
       final item = await findById(id);
       if (item != null) {
         items.add(item);
       }
     }
-    final placeholders = List.filled(ids.length, '?').join(',');
-    await db.delete(
-      'file_item_tags',
-      where: 'file_item_id IN ($placeholders)',
-      whereArgs: ids.toList(),
-    );
-    await db.delete(
-      'file_items',
-      where: 'id IN ($placeholders)',
-      whereArgs: ids.toList(),
-    );
+    final placeholders = List.filled(idList.length, '?').join(',');
+    await db.transaction((txn) async {
+      await txn.delete(
+        'file_item_tags',
+        where: 'file_item_id IN ($placeholders)',
+        whereArgs: idList,
+      );
+      await txn.delete(
+        'file_items',
+        where: 'id IN ($placeholders)',
+        whereArgs: idList,
+      );
+      for (final id in idList) {
+        await _deletedRecordService.recordDeletion(
+          entityType: DeletedRecordService.entityFileItem,
+          entityId: id,
+          executor: txn,
+        );
+      }
+    });
     for (final item in items) {
       await _deleteIfExists(item.localPath);
       if (item.markdownPath != item.localPath) {
         await _deleteIfExists(item.markdownPath);
       }
     }
+    CloudSyncService.instance.scheduleSync();
   }
 
   Future<FileTag> ensureTag(String name) async {
@@ -759,17 +842,44 @@ $body$failureBlock
     if (existing.isNotEmpty) {
       return _mapTag(existing.first);
     }
+    final nextSortOrder =
+        Sqflite.firstIntValue(
+          await db.rawQuery(
+            'SELECT COALESCE(MAX(sort_order), -1) + 1 FROM file_tags',
+          ),
+        ) ??
+        0;
     final tag = FileTag(
       id: _newId(),
       name: normalized,
       createdAt: DateTime.now(),
+      sortOrder: nextSortOrder,
     );
     await db.insert('file_tags', {
       'id': tag.id,
       'name': tag.name,
       'created_at': tag.createdAt.toIso8601String(),
+      'updated_at': tag.createdAt.toIso8601String(),
+      'sort_order': tag.sortOrder,
     });
+    CloudSyncService.instance.scheduleSync();
     return tag;
+  }
+
+  Future<void> reorderTags(List<String> orderedIds) async {
+    final db = await LocalDatabase.instance.database;
+    final now = DateTime.now().toIso8601String();
+    final batch = db.batch();
+    for (var index = 0; index < orderedIds.length; index++) {
+      batch.update(
+        'file_tags',
+        {'sort_order': index, 'updated_at': now},
+        where: 'id = ?',
+        whereArgs: [orderedIds[index]],
+      );
+    }
+    await batch.commit(noResult: true);
+    CloudSyncService.instance.scheduleSync();
   }
 
   Future<void> addTagToItems({
@@ -784,8 +894,15 @@ $body$failureBlock
         'file_item_id': itemId,
         'tag_id': tag.id,
       }, conflictAlgorithm: ConflictAlgorithm.ignore);
+      batch.update(
+        'file_items',
+        {'updated_at': DateTime.now().toIso8601String()},
+        where: 'id = ?',
+        whereArgs: [itemId],
+      );
     }
     await batch.commit(noResult: true);
+    CloudSyncService.instance.scheduleSync();
   }
 
   Future<void> setTagsForItem({
@@ -794,6 +911,7 @@ $body$failureBlock
   }) async {
     final db = await LocalDatabase.instance.database;
     final batch = db.batch();
+    final now = DateTime.now().toIso8601String();
     batch.delete(
       'file_item_tags',
       where: 'file_item_id = ?',
@@ -805,7 +923,14 @@ $body$failureBlock
         'tag_id': tagId,
       }, conflictAlgorithm: ConflictAlgorithm.ignore);
     }
+    batch.update(
+      'file_items',
+      {'updated_at': now},
+      where: 'id = ?',
+      whereArgs: [itemId],
+    );
     await batch.commit(noResult: true);
+    CloudSyncService.instance.scheduleSync();
   }
 
   Future<void> removeTagFromItems({
@@ -817,11 +942,26 @@ $body$failureBlock
     }
     final db = await LocalDatabase.instance.database;
     final placeholders = List.filled(itemIds.length, '?').join(',');
-    await db.delete(
-      'file_item_tags',
-      where: 'tag_id = ? AND file_item_id IN ($placeholders)',
-      whereArgs: [tagId, ...itemIds],
-    );
+    final ids = itemIds.toList();
+    final now = DateTime.now().toIso8601String();
+    await db.transaction((txn) async {
+      await txn.delete(
+        'file_item_tags',
+        where: 'tag_id = ? AND file_item_id IN ($placeholders)',
+        whereArgs: [tagId, ...ids],
+      );
+      final batch = txn.batch();
+      for (final itemId in ids) {
+        batch.update(
+          'file_items',
+          {'updated_at': now},
+          where: 'id = ?',
+          whereArgs: [itemId],
+        );
+      }
+      await batch.commit(noResult: true);
+    });
+    CloudSyncService.instance.scheduleSync();
   }
 
   Future<_CapturedWebpage> _captureMarkdown({
@@ -942,6 +1082,7 @@ $markdownBody
       where: 'id = ?',
       whereArgs: [item.id],
     );
+    CloudSyncService.instance.scheduleSync();
     return await findById(item.id) ?? item;
   }
 
@@ -987,7 +1128,7 @@ $body
       FROM file_tags t
       INNER JOIN file_item_tags it ON it.tag_id = t.id
       WHERE it.file_item_id = ?
-      ORDER BY t.name COLLATE NOCASE ASC
+      ORDER BY t.sort_order ASC, t.name COLLATE NOCASE ASC
       ''',
       [row['id']],
     );
@@ -1006,6 +1147,9 @@ $body
       sizeBytes: _asInt(row['size_bytes']),
       createdAt: DateTime.parse(row['created_at'] as String),
       updatedAt: DateTime.parse(row['updated_at'] as String),
+      aiTitleGeneratedAt: row['ai_title_generated_at'] == null
+          ? null
+          : DateTime.parse(row['ai_title_generated_at'] as String),
       archivedAt: row['archived_at'] == null
           ? null
           : DateTime.parse(row['archived_at'] as String),
@@ -1018,6 +1162,7 @@ $body
       id: row['id'] as String,
       name: row['name'] as String,
       createdAt: DateTime.parse(row['created_at'] as String),
+      sortOrder: _asInt(row['sort_order']),
     );
   }
 
@@ -1035,8 +1180,31 @@ $body
       'size_bytes': item.sizeBytes,
       'created_at': item.createdAt.toIso8601String(),
       'updated_at': item.updatedAt.toIso8601String(),
+      'ai_title_generated_at': item.aiTitleGeneratedAt?.toIso8601String(),
       'archived_at': item.archivedAt?.toIso8601String(),
     }, conflictAlgorithm: ConflictAlgorithm.replace);
+    await _deletedRecordService.clearDeletion(
+      entityType: DeletedRecordService.entityFileItem,
+      entityId: item.id,
+    );
+    CloudSyncService.instance.scheduleSync();
+  }
+
+  Future<void> _touchItemsWithTag(
+    DatabaseExecutor db,
+    String tagId,
+    String updatedAt,
+  ) async {
+    await db.rawUpdate(
+      '''
+      UPDATE file_items
+      SET updated_at = ?
+      WHERE id IN (
+        SELECT file_item_id FROM file_item_tags WHERE tag_id = ?
+      )
+      ''',
+      [updatedAt, tagId],
+    );
   }
 
   Future<bool> _matchesQuery(FileItem item, String query) async {
@@ -1541,6 +1709,152 @@ $body
     return fallback;
   }
 
+  Future<Map<String, String>> _requestAiTitles(List<FileItem> items) async {
+    const perFileLimit = 1800;
+    final payload = <Map<String, String>>[];
+    for (final item in items) {
+      final content = await item.loadTextContent().catchError(
+        (_) => item.plainTextPreview,
+      );
+      final trimmed = content.trim().isEmpty ? item.plainTextPreview : content;
+      payload.add({
+        'id': item.id,
+        'current_title': item.title,
+        'kind': item.kind.label,
+        'source': item.originalUrl.isNotEmpty
+            ? item.originalUrl
+            : p.basename(item.localPath),
+        'content': trimmed.length > perFileLimit
+            ? trimmed.substring(0, perFileLimit)
+            : trimmed,
+      });
+    }
+    final response = await _aiService.complete(
+      systemPrompt: '你是文件管理助手。请为每个文件生成简短、清晰、可检索的中文标题。只返回 JSON，不要解释。',
+      userPrompt:
+          '''
+请读取下面所有文件，为每个文件生成一个标题。
+要求：
+- 标题不超过 28 个中文字符或 60 个英文字符。
+- 不要使用引号、Markdown、编号前缀。
+- 如果内容不足，基于当前标题和来源生成一个合理标题。
+- 严格返回 JSON 数组，格式为 [{"id":"文件 id","title":"标题"}]。
+
+文件：
+${jsonEncode(payload)}
+''',
+    );
+    final decoded = _decodeJsonArray(response);
+    final titles = <String, String>{};
+    for (final entry in decoded.whereType<Map>()) {
+      final id = '${entry['id'] ?? ''}';
+      final title = _cleanAiTitle('${entry['title'] ?? ''}');
+      if (id.isNotEmpty && title.isNotEmpty) {
+        titles[id] = title;
+      }
+    }
+    return titles;
+  }
+
+  Future<void> _applyAiTitles(
+    List<FileItem> items,
+    Map<String, String> titles,
+  ) async {
+    final db = await LocalDatabase.instance.database;
+    final now = DateTime.now().toIso8601String();
+    final batch = db.batch();
+    for (final item in items) {
+      batch.update(
+        'file_items',
+        {
+          'title': titles[item.id] ?? item.title,
+          'updated_at': now,
+          'ai_title_generated_at': now,
+        },
+        where: 'id = ?',
+        whereArgs: [item.id],
+      );
+    }
+    await batch.commit(noResult: true);
+    CloudSyncService.instance.scheduleSync();
+  }
+
+  List<dynamic> _decodeJsonArray(String value) {
+    final trimmed = value.trim();
+    final fenced = RegExp(
+      r'```(?:json)?\s*([\s\S]*?)\s*```',
+    ).firstMatch(trimmed);
+    final raw = fenced?.group(1) ?? trimmed;
+    final start = raw.indexOf('[');
+    final end = raw.lastIndexOf(']');
+    if (start < 0 || end < start) {
+      throw const AiServiceException('AI service returned invalid data.');
+    }
+    final decoded = jsonDecode(raw.substring(start, end + 1));
+    if (decoded is! List) {
+      throw const AiServiceException('AI service returned invalid data.');
+    }
+    return decoded;
+  }
+
+  String _cleanAiTitle(String value) {
+    final cleaned = value
+        .replaceAll(RegExp(r'^[\s#\-*•\d.、:：]+'), '')
+        .replaceAll(RegExp(r'["“”‘’`]+'), '')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+    if (cleaned.length < 2) {
+      return '';
+    }
+    return cleaned.runes.length > 60
+        ? String.fromCharCodes(cleaned.runes.take(60)).trim()
+        : cleaned;
+  }
+
+  String _suggestOcrTitle(List<String> parts, {required String fallback}) {
+    for (final part in parts.take(3)) {
+      for (final line in part.split('\n')) {
+        final candidate = _cleanOcrTitle(line);
+        if (candidate.isNotEmpty) {
+          return candidate;
+        }
+      }
+    }
+    return fallback;
+  }
+
+  String _titleFromOcr(String candidate, String fallback) {
+    final cleaned = _cleanOcrTitle(candidate);
+    return cleaned.isEmpty ? fallback : cleaned;
+  }
+
+  String _cleanOcrTitle(String value) {
+    final cleaned = value
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .replaceAll(RegExp(r'^[\-•●▪▫*#\d\.、)（(]+'), '')
+        .trim();
+    if (cleaned.length < 2) {
+      return '';
+    }
+    if (_isLikelyOcrNoiseLine(cleaned)) {
+      return '';
+    }
+    return cleaned.runes.length > 42
+        ? String.fromCharCodes(cleaned.runes.take(42)).trim()
+        : cleaned;
+  }
+
+  String _withMarkdownTitle(String markdown, String title) {
+    final updatedFrontMatter = markdown.replaceFirst(
+      RegExp(r'^title: .+$', multiLine: true),
+      'title: ${_yamlValue(title)}',
+    );
+    return updatedFrontMatter.replaceFirst(
+      RegExp(r'^# .+$', multiLine: true),
+      '# $title',
+    );
+  }
+
   String _safeFilename(String value) {
     return value.replaceAll(RegExp(r'[\\/:*?"<>|#\[\]^]'), '_');
   }
@@ -1596,8 +1910,13 @@ class _ExtractedPdf {
 }
 
 class _ExtractedOcr {
-  const _ExtractedOcr({required this.markdown, required this.plainText});
+  const _ExtractedOcr({
+    required this.suggestedTitle,
+    required this.markdown,
+    required this.plainText,
+  });
 
+  final String suggestedTitle;
   final String markdown;
   final String plainText;
 }

@@ -6,7 +6,10 @@ void main() {
   testWidgets('shows the English welcome screen on first launch', (
     tester,
   ) async {
-    SharedPreferences.setMockInitialValues({'welcome_seen_v3': false});
+    SharedPreferences.setMockInitialValues({
+      'welcome_seen_v3': false,
+      'interface_language_mode': 'english',
+    });
 
     await tester.pumpWidget(const MyApp());
     await tester.pumpAndSettle();

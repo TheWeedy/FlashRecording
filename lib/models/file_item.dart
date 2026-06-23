@@ -7,11 +7,13 @@ class FileTag {
     required this.id,
     required this.name,
     required this.createdAt,
+    this.sortOrder = 0,
   });
 
   final String id;
   final String name;
   final DateTime createdAt;
+  final int sortOrder;
 }
 
 class FileItem {
@@ -28,6 +30,7 @@ class FileItem {
     required this.createdAt,
     required this.updatedAt,
     required this.tags,
+    this.aiTitleGeneratedAt,
     this.archivedAt,
   });
 
@@ -43,6 +46,7 @@ class FileItem {
   final DateTime createdAt;
   final DateTime updatedAt;
   final DateTime? archivedAt;
+  final DateTime? aiTitleGeneratedAt;
   final List<FileTag> tags;
 
   bool get isArchived => archivedAt != null;

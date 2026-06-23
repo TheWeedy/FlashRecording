@@ -33,6 +33,7 @@ class AppLocalizations {
   String get delete => ui('删除', 'Delete', '削除');
   String get archive => ui('归档', 'Archive', 'アーカイブ');
   String get restore => ui('恢复', 'Restore', '復元');
+  String get refresh => ui('刷新', 'Refresh', '更新');
   String get close => ui('关闭', 'Close', '閉じる');
   String get add => ui('添加', 'Add', '追加');
   String get rename => ui('重命名', 'Rename', '名前を変更');
@@ -46,6 +47,9 @@ class AppLocalizations {
   String get updated => ui('更新于', 'Updated', '更新');
   String get defaultLabel => ui('默认', 'Default', 'デフォルト');
   String get version => ui('版本', 'Version', 'バージョン');
+  String get developer => ui('开发者', 'Developer', '開発者');
+  String get githubRepository =>
+      ui('GitHub 仓库', 'GitHub repository', 'GitHub リポジトリ');
   String get thinking => ui('思考中...', 'Thinking...', '考え中...');
   String get writing => ui('写作中...', 'Writing...', '作成中...');
   String get planning => ui('规划中...', 'Planning...', '計画中...');
@@ -453,6 +457,26 @@ class AppLocalizations {
   String get unsupportedItems => ui('不可问答材料', 'unsupported item(s)', '未対応の項目');
   String get askSelectedFiles =>
       ui('询问选中文件', 'Ask selected files', '選択ファイルに質問');
+  String get aiTitleFiles => ui('AI 取标题', 'AI titles', 'AI タイトル');
+  String get aiTitleFilesBody => ui(
+    'AI 会读取尚未执行过标题生成、或之后修改过的文件，并一次性生成新标题。',
+    'AI will read files that have not been titled yet, or were modified afterward, and generate titles in one batch.',
+    'AI は未処理、または後で変更されたファイルを読み取り、まとめてタイトルを生成します。',
+  );
+  String aiTitlePendingCount(int count) =>
+      ui('$count 个文件待处理', '$count file(s) pending', '$count 件のファイルが対象');
+  String aiTitleUpdatedCount(int count) => ui(
+    '已为 $count 个文件更新标题。',
+    'Updated titles for $count file(s).',
+    '$count 件のタイトルを更新しました。',
+  );
+  String get aiTitleNoPending => ui(
+    '没有需要 AI 取标题的文件。',
+    'No files need AI titles.',
+    'AI タイトルが必要なファイルはありません。',
+  );
+  String get generateAiTitles => ui('生成标题', 'Generate titles', 'タイトルを生成');
+  String get generateAiTitle => ui('AI 生成标题', 'Generate AI title', 'AI タイトル生成');
   String usingKnowledgeItems(int usable, int skipped) => ui(
     '使用 $usable 个 OCR/文本/网页/PDF 知识材料，跳过 $skipped 个不支持的材料。',
     'Using $usable OCR/text/web/PDF knowledge item(s). Skipping $skipped unsupported item(s).',
@@ -556,6 +580,12 @@ class AppLocalizations {
   );
 
   String localizeError(String message) {
+    final normalized = message
+        .replaceFirst(
+          RegExp(r'^(AiServiceException|FileLibraryException):\s*'),
+          '',
+        )
+        .trim();
     const zhMap = {
       'Add an AI API key in Settings first.': '请先在设置中添加 AI API Key。',
       'AI returned no content.': 'AI 没有返回内容。',
@@ -599,11 +629,11 @@ class AppLocalizations {
       'The selected file no longer exists.': '選択したファイルは存在しません。',
     };
     if (isChinese) {
-      return zhMap[message] ?? message;
+      return zhMap[normalized] ?? normalized;
     }
     if (isJapanese) {
-      return jaMap[message] ?? message;
+      return jaMap[normalized] ?? normalized;
     }
-    return message;
+    return normalized;
   }
 }

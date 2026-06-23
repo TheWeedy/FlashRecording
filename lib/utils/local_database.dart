@@ -7,7 +7,7 @@ class LocalDatabase {
   static final LocalDatabase instance = LocalDatabase._();
 
   static const _databaseName = 'record_my_time.db';
-  static const _databaseVersion = 8;
+  static const _databaseVersion = 11;
 
   Database? _database;
 
@@ -96,6 +96,15 @@ class LocalDatabase {
         if (oldVersion < 8) {
           await _createFileLibraryTables(db);
         }
+        if (oldVersion < 9) {
+          await _addFileTagUpdatedAt(db);
+        }
+        if (oldVersion < 10) {
+          await _addFileTagSortOrder(db);
+        }
+        if (oldVersion < 11) {
+          await _addFileAiTitleGeneratedAt(db);
+        }
       },
     );
 
@@ -130,6 +139,7 @@ class LocalDatabase {
         sort_order INTEGER NOT NULL DEFAULT 0,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
+        ai_title_generated_at TEXT,
         archived_at TEXT
       )
     ''');
@@ -180,9 +190,14 @@ class LocalDatabase {
       CREATE TABLE IF NOT EXISTS file_tags (
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL UNIQUE COLLATE NOCASE,
-        created_at TEXT NOT NULL
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL DEFAULT '',
+        sort_order INTEGER NOT NULL DEFAULT 0
       )
     ''');
+    await _addFileTagUpdatedAt(db);
+    await _addFileTagSortOrder(db);
+    await _addFileAiTitleGeneratedAt(db);
 
     await db.execute('''
       CREATE TABLE IF NOT EXISTS file_item_tags (
@@ -193,5 +208,59 @@ class LocalDatabase {
         FOREIGN KEY (tag_id) REFERENCES file_tags(id) ON DELETE CASCADE
       )
     ''');
+  }
+
+  Future<void> _addFileTagUpdatedAt(Database db) async {
+    final columns = await db.rawQuery('PRAGMA table_info(file_tags)');
+    final hasUpdatedAt = columns.any(
+      (column) => column['name'] == 'updated_at',
+    );
+    if (!hasUpdatedAt) {
+      await db.execute(
+        "ALTER TABLE file_tags ADD COLUMN updated_at TEXT NOT NULL DEFAULT ''",
+      );
+    }
+    await db.execute(
+      "UPDATE file_tags SET updated_at = created_at WHERE updated_at = ''",
+    );
+  }
+
+  Future<void> _addFileTagSortOrder(Database db) async {
+    final columns = await db.rawQuery('PRAGMA table_info(file_tags)');
+    final hasSortOrder = columns.any(
+      (column) => column['name'] == 'sort_order',
+    );
+    if (!hasSortOrder) {
+      await db.execute(
+        'ALTER TABLE file_tags ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0',
+      );
+    }
+    final rows = await db.query(
+      'file_tags',
+      columns: ['id'],
+      orderBy: 'name COLLATE NOCASE ASC, created_at ASC',
+    );
+    final batch = db.batch();
+    for (var index = 0; index < rows.length; index++) {
+      batch.update(
+        'file_tags',
+        {'sort_order': index},
+        where: 'id = ? AND sort_order = 0',
+        whereArgs: [rows[index]['id']],
+      );
+    }
+    await batch.commit(noResult: true);
+  }
+
+  Future<void> _addFileAiTitleGeneratedAt(Database db) async {
+    final columns = await db.rawQuery('PRAGMA table_info(file_items)');
+    final hasAiTitleGeneratedAt = columns.any(
+      (column) => column['name'] == 'ai_title_generated_at',
+    );
+    if (!hasAiTitleGeneratedAt) {
+      await db.execute(
+        'ALTER TABLE file_items ADD COLUMN ai_title_generated_at TEXT',
+      );
+    }
   }
 }

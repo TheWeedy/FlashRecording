@@ -10,15 +10,16 @@ import '../utils/cloud_sync_service.dart';
 import '../utils/notification_service.dart';
 import '../utils/todo_persistence.dart';
 import '../widgets/app_components.dart';
+import '../widgets/responsive_scaffold.dart';
 
 class TodoScreen extends StatefulWidget {
   const TodoScreen({super.key});
 
   @override
-  State<TodoScreen> createState() => _TodoScreenState();
+  State<TodoScreen> createState() => TodoScreenState();
 }
 
-class _TodoScreenState extends State<TodoScreen> {
+class TodoScreenState extends State<TodoScreen> {
   static const _presetColors = [
     0xFF2F5D50,
     0xFF356B8C,
@@ -47,11 +48,11 @@ class _TodoScreenState extends State<TodoScreen> {
   void initState() {
     super.initState();
     _loadTodos();
-    unawaited(_backgroundSync());
+    unawaited(refreshFromCloud(force: false));
   }
 
-  Future<void> _backgroundSync() async {
-    await CloudSyncService.instance.syncNow();
+  Future<void> refreshFromCloud({bool force = true}) async {
+    await CloudSyncService.instance.syncNow(force: force);
     await _loadTodos();
   }
 
@@ -73,78 +74,127 @@ class _TodoScreenState extends State<TodoScreen> {
     final titleController = TextEditingController();
     var selectedColor = _presetColors.first;
 
-    await showDialog<void>(
+    await showAppActionSheet<void>(
       context: context,
-      builder: (dialogContext) {
-        final l10n = dialogContext.l10n;
-        final navigator = Navigator.of(dialogContext);
+      isScrollControlled: true,
+      builder: (sheetContext) {
+        final l10n = sheetContext.l10n;
         return StatefulBuilder(
           builder: (context, setDialogState) {
-            return AlertDialog(
-              title: Text(l10n.createTaskTag),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  TextField(
-                    controller: titleController,
-                    decoration: InputDecoration(labelText: l10n.title),
-                    autofocus: true,
-                  ),
-                  const SizedBox(height: 16),
-                  Text(
-                    l10n.accentColor,
-                    style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                      color: AppTheme.muted,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  Wrap(
-                    spacing: 10,
-                    runSpacing: 10,
-                    children: [
-                      for (final colorValue in _presetColors)
-                        _ColorSwatch(
-                          colorValue: colorValue,
-                          selected: selectedColor == colorValue,
-                          onTap: () {
-                            setDialogState(() {
-                              selectedColor = colorValue;
-                            });
-                          },
-                        ),
-                    ],
-                  ),
-                ],
-              ),
-              actions: [
-                TextButton(onPressed: navigator.pop, child: Text(l10n.cancel)),
-                FilledButton(
-                  onPressed: () async {
-                    final title = titleController.text.trim();
-                    if (title.isEmpty) {
-                      return;
-                    }
+            final media = MediaQuery.of(context);
+            final availableHeight =
+                media.size.height -
+                media.padding.top -
+                media.viewInsets.bottom -
+                16;
+            final maxHeight = (availableHeight * 0.9)
+                .clamp(0.0, 560.0)
+                .toDouble();
 
-                    await _service.createTodo(
-                      title: title,
-                      colorValue: selectedColor,
-                    );
-                    if (!mounted) {
-                      return;
-                    }
-                    navigator.pop();
-                    await _loadTodos();
-                  },
-                  child: Text(l10n.save),
+            return ConstrainedBox(
+              constraints: BoxConstraints(maxHeight: maxHeight),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(18, 0, 18, 18),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      l10n.createTaskTag,
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                        color: AppTheme.ink,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    Flexible(
+                      child: SingleChildScrollView(
+                        keyboardDismissBehavior:
+                            ScrollViewKeyboardDismissBehavior.onDrag,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            TextField(
+                              controller: titleController,
+                              decoration: InputDecoration(
+                                labelText: l10n.title,
+                              ),
+                              autofocus: true,
+                            ),
+                            const SizedBox(height: 16),
+                            Text(
+                              l10n.accentColor,
+                              style: Theme.of(context).textTheme.labelLarge
+                                  ?.copyWith(
+                                    color: AppTheme.muted,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                            ),
+                            const SizedBox(height: 10),
+                            Wrap(
+                              spacing: 10,
+                              runSpacing: 10,
+                              children: [
+                                for (final colorValue in _presetColors)
+                                  _ColorSwatch(
+                                    colorValue: colorValue,
+                                    selected: selectedColor == colorValue,
+                                    onTap: () {
+                                      setDialogState(() {
+                                        selectedColor = colorValue;
+                                      });
+                                    },
+                                  ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 18),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton(
+                            onPressed: () => Navigator.of(sheetContext).pop(),
+                            child: Text(l10n.cancel),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: FilledButton(
+                            onPressed: () async {
+                              final title = titleController.text.trim();
+                              if (title.isEmpty) {
+                                return;
+                              }
+
+                              await _service.createTodo(
+                                title: title,
+                                colorValue: selectedColor,
+                              );
+                              if (!mounted) {
+                                return;
+                              }
+                              if (sheetContext.mounted) {
+                                Navigator.of(sheetContext).pop();
+                              }
+                              await _loadTodos();
+                            },
+                            child: Text(l10n.save),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
                 ),
-              ],
+              ),
             );
           },
         );
       },
     );
+    titleController.dispose();
   }
 
   Future<void> _showEditTodoDialog(TodoItem item) async {
@@ -376,145 +426,217 @@ ${_archivedTodos.isEmpty ? '- 无' : _archivedTodos.map(itemLine).join('\n')}
     return context.l10n.hoursMinutesShort(hours, minutes);
   }
 
+  String _tasksHeaderMeta() {
+    final l10n = context.l10n;
+    return '${l10n.active} ${_activeTodos.length} · ${l10n.archived} ${_archivedTodos.length}';
+  }
+
+  Future<void> _showArchivedTodos() async {
+    final l10n = context.l10n;
+    await showAppActionSheet<void>(
+      context: context,
+      builder: (sheetContext) {
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(18, 0, 18, 18),
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              maxHeight: MediaQuery.sizeOf(context).height * 0.72,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                SectionHeader(
+                  eyebrow: l10n.tasksEyebrow,
+                  title: '${l10n.archived} (${_archivedTodos.length})',
+                  description: l10n.noArchivedTaskTags,
+                  showContext: false,
+                  showCompactMeta: _archivedTodos.isEmpty,
+                ),
+                const SizedBox(height: AppTheme.space3),
+                Flexible(
+                  child: _archivedTodos.isEmpty
+                      ? EmptyState(
+                          icon: Icons.archive_outlined,
+                          title: l10n.archived,
+                          message: l10n.noArchivedTaskTags,
+                        )
+                      : ListView.builder(
+                          shrinkWrap: true,
+                          itemCount: _archivedTodos.length,
+                          itemBuilder: (context, index) => _buildTodoCard(
+                            _archivedTodos[index],
+                            archived: true,
+                            key: ValueKey(
+                              'archived-${_archivedTodos[index].id}',
+                            ),
+                          ),
+                        ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   Widget _buildAiPlanPanel() {
     return FadeSlideIn(
       delay: const Duration(milliseconds: 80),
       child: AppPanel(
         color: AppTheme.raisedSurface,
+        borderColor: AppTheme.sunshine.withValues(alpha: 0.35),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Icon(
-                  Icons.auto_awesome_outlined,
-                  color: AppTheme.primary,
+                const FlatIllustrationBadge(
+                  icon: Icons.route_outlined,
+                  color: AppTheme.warning,
+                  size: 48,
                 ),
-                const SizedBox(width: 8),
+                const SizedBox(width: 12),
                 Expanded(
-                  child: Text(
-                    context.l10n.aiPlanning,
-                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ),
-                TextButton.icon(
-                  onPressed: _isAiLoading ? null : _generateAiPlan,
-                  icon: _isAiLoading
-                      ? const SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.route_outlined),
-                  label: Text(
-                    _isAiLoading
-                        ? context.l10n.planning
-                        : context.l10n.recommend,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        context.l10n.aiPlanning,
+                        style: Theme.of(context).textTheme.titleMedium
+                            ?.copyWith(
+                              color: AppTheme.ink,
+                              fontWeight: FontWeight.w900,
+                              height: 1.16,
+                            ),
+                      ),
+                      const SizedBox(height: 5),
+                      Text(
+                        context.l10n.aiPlanningBody,
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: AppTheme.muted,
+                          height: 1.35,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ],
             ),
-            const SizedBox(height: 10),
-            if (_aiPlan == null)
-              Text(
-                context.l10n.aiPlanningBody,
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: AppTheme.muted,
-                  height: 1.5,
+            const SizedBox(height: 14),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                onPressed: _isAiLoading ? null : _generateAiPlan,
+                icon: _isAiLoading
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.auto_awesome_outlined),
+                label: Text(
+                  _isAiLoading ? context.l10n.planning : context.l10n.recommend,
                 ),
-              )
-            else
+              ),
+            ),
+            if (_aiPlan != null) ...[
+              const SizedBox(height: 14),
               AiMarkdownBlock(data: _aiPlan!),
+            ],
           ],
         ),
       ),
     );
   }
 
-  @override
-  Widget build(BuildContext context) {
-    if (_isLoading) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
-    }
+  Widget _buildMetricsRow() {
     final l10n = context.l10n;
-
-    return Scaffold(
-      body: SafeArea(
-        child: ReorderableListView(
-          padding: const EdgeInsets.fromLTRB(
-            AppTheme.pagePadding,
-            18,
-            AppTheme.pagePadding,
-            104,
+    final totalMinutes = _activeTodos.fold<int>(
+      0,
+      (sum, item) => sum + item.totalDurationMinutes,
+    );
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final compact = constraints.maxWidth < 420;
+        final tiles = [
+          MetricTile(
+            label: l10n.active,
+            value: '${_activeTodos.length}',
+            icon: Icons.layers_outlined,
+            accent: AppTheme.primary,
           ),
+          MetricTile(
+            label: l10n.archived,
+            value: '${_archivedTodos.length}',
+            icon: Icons.inventory_2_outlined,
+            accent: AppTheme.copper,
+          ),
+          MetricTile(
+            label: l10n.trackedTime,
+            value: _formatMinutes(totalMinutes),
+            icon: Icons.timelapse,
+            accent: AppTheme.steel,
+          ),
+        ];
+        if (compact) {
+          return Column(
+            children: [
+              Row(
+                children: [
+                  Expanded(child: tiles[0]),
+                  const SizedBox(width: 10),
+                  Expanded(child: tiles[1]),
+                ],
+              ),
+              const SizedBox(height: 10),
+              tiles[2],
+            ],
+          );
+        }
+        return Row(
+          children: [
+            for (var index = 0; index < tiles.length; index++) ...[
+              Expanded(child: tiles[index]),
+              if (index != tiles.length - 1) const SizedBox(width: 10),
+            ],
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildDesktopLayout() {
+    final l10n = context.l10n;
+    return AdaptiveWorkspace(
+      primaryFlex: 5,
+      secondaryFlex: 4,
+      primary: RefreshIndicator(
+        onRefresh: refreshFromCloud,
+        child: ReorderableListView(
+          physics: const AlwaysScrollableScrollPhysics(),
           onReorderItem: _reorderActiveTodos,
           header: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              PageIntro(
+              SectionHeader(
                 eyebrow: l10n.tasksEyebrow,
                 title: l10n.tasksTitle,
-                description: l10n.tasksDescription,
-              ),
-              const SizedBox(height: 18),
-              Row(
-                children: [
-                  Expanded(
-                    child: MetricTile(
-                      label: l10n.active,
-                      value: '${_activeTodos.length}',
-                      icon: Icons.layers_outlined,
-                      accent: AppTheme.primary,
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: MetricTile(
-                      label: l10n.archived,
-                      value: '${_archivedTodos.length}',
-                      icon: Icons.inventory_2_outlined,
-                      accent: AppTheme.copper,
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 16),
-              _buildAiPlanPanel(),
-              const SizedBox(height: 16),
-            ],
-          ),
-          footer: Column(
-            children: [
-              const SizedBox(height: 10),
-              ExpansionTile(
-                tilePadding: EdgeInsets.zero,
-                collapsedIconColor: AppTheme.muted,
-                iconColor: AppTheme.primary,
-                title: Text(
-                  '${l10n.archived} (${_archivedTodos.length})',
-                  style: const TextStyle(fontWeight: FontWeight.w700),
+                description: _tasksHeaderMeta(),
+                showContext: false,
+                showCompactMeta: true,
+                trailing: QuietIconButton(
+                  icon: Icons.archive_outlined,
+                  tooltip: l10n.archived,
+                  onPressed: _showArchivedTodos,
                 ),
-                children: _archivedTodos.isEmpty
-                    ? [
-                        Padding(
-                          padding: const EdgeInsets.only(bottom: 12),
-                          child: Align(
-                            alignment: Alignment.centerLeft,
-                            child: Text(l10n.noArchivedTaskTags),
-                          ),
-                        ),
-                      ]
-                    : List.generate(
-                        _archivedTodos.length,
-                        (index) => _buildTodoCard(
-                          _archivedTodos[index],
-                          archived: true,
-                          key: ValueKey('archived-${_archivedTodos[index].id}'),
-                        ),
-                      ),
               ),
+              const SizedBox(height: AppTheme.space3),
+              _buildMetricsRow(),
+              const SizedBox(height: AppTheme.space3),
             ],
           ),
           children: _activeTodos.isEmpty
@@ -539,11 +661,100 @@ ${_archivedTodos.isEmpty ? '- 无' : _archivedTodos.map(itemLine).join('\n')}
                 ),
         ),
       ),
-      floatingActionButtonAnimator: FloatingActionButtonAnimator.scaling,
-      floatingActionButton: FloatingActionButton(
-        onPressed: _showCreateTodoDialog,
+      secondary: SingleChildScrollView(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [_buildAiPlanPanel()],
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_isLoading) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
+    final l10n = context.l10n;
+
+    if (isDesktopLayout(context)) {
+      return Scaffold(
+        body: SafeArea(child: _buildDesktopLayout()),
+        floatingActionButtonLocation: const AppTuckedEndFabLocation(),
+        floatingActionButton: ContextualActionFab(
+          heroTag: 'tasks-contextual-fab',
+          tooltip: l10n.createTaskTag,
+          icon: Icons.add,
+          onPressed: _showCreateTodoDialog,
+        ),
+      );
+    }
+
+    return Scaffold(
+      body: SafeArea(
+        child: RefreshIndicator(
+          onRefresh: refreshFromCloud,
+          child: ReorderableListView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: const EdgeInsets.fromLTRB(
+              AppTheme.pagePadding,
+              12,
+              AppTheme.pagePadding,
+              142,
+            ),
+            onReorderItem: _reorderActiveTodos,
+            header: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                PageIntro(
+                  eyebrow: l10n.tasksEyebrow,
+                  title: l10n.tasksTitle,
+                  description: _tasksHeaderMeta(),
+                  showContext: false,
+                  showCompactMeta: true,
+                  trailing: QuietIconButton(
+                    icon: Icons.archive_outlined,
+                    tooltip: l10n.archived,
+                    onPressed: _showArchivedTodos,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                _buildAiPlanPanel(),
+                const SizedBox(height: 10),
+                _buildMetricsRow(),
+                const SizedBox(height: 10),
+              ],
+            ),
+            footer: const SizedBox(height: 16),
+            children: _activeTodos.isEmpty
+                ? [
+                    Padding(
+                      key: const ValueKey('empty-task-card'),
+                      padding: const EdgeInsets.only(bottom: 10),
+                      child: EmptyState(
+                        icon: Icons.checklist_outlined,
+                        title: l10n.noTaskTagsTitle,
+                        message: l10n.noTaskTagsMessage,
+                      ),
+                    ),
+                  ]
+                : List.generate(
+                    _activeTodos.length,
+                    (index) => _buildTodoCard(
+                      _activeTodos[index],
+                      key: ValueKey(_activeTodos[index].id),
+                      index: index,
+                    ),
+                  ),
+          ),
+        ),
+      ),
+      floatingActionButtonLocation: const AppTuckedEndFabLocation(),
+      floatingActionButton: ContextualActionFab(
+        heroTag: 'tasks-contextual-fab',
         tooltip: l10n.createTaskTag,
-        child: const Icon(Icons.add),
+        icon: Icons.add,
+        onPressed: _showCreateTodoDialog,
       ),
     );
   }
@@ -554,105 +765,194 @@ ${_archivedTodos.isEmpty ? '- 无' : _archivedTodos.map(itemLine).join('\n')}
     Key? key,
     int index = 0,
   }) {
+    final compact = !isDesktopLayout(context);
+    final panelPadding = compact
+        ? const EdgeInsets.fromLTRB(44, 11, 10, 11)
+        : const EdgeInsets.fromLTRB(44, 13, 12, 13);
+
     return Padding(
       key: key,
-      padding: const EdgeInsets.only(bottom: 10),
+      padding: EdgeInsets.only(bottom: compact ? 8 : 10),
       child: FadeSlideIn(
         delay: Duration(milliseconds: 30 * (index > 8 ? 8 : index)),
         child: AppPanel(
-          padding: const EdgeInsets.all(14),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
+          padding: panelPadding,
+          child: Stack(
+            clipBehavior: Clip.none,
             children: [
-              Container(
-                width: 42,
-                height: 42,
-                decoration: BoxDecoration(
-                  color: item.color.withValues(alpha: 0.16),
-                  borderRadius: BorderRadius.circular(999),
-                ),
-                child: Icon(
-                  archived ? Icons.archive_outlined : Icons.label_outline,
-                  color: item.color,
+              Positioned(
+                left: -22,
+                top: -13,
+                bottom: -13,
+                child: Container(
+                  width: 2,
+                  decoration: BoxDecoration(
+                    color: item.color.withValues(alpha: 0.28),
+                    borderRadius: BorderRadius.circular(AppTheme.radiusPill),
+                  ),
                 ),
               ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            item.title,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: Theme.of(context).textTheme.titleMedium
-                                ?.copyWith(fontWeight: FontWeight.w700),
-                          ),
-                        ),
-                        if (item.isSystem)
-                          AppChip(
-                            label: context.l10n.defaultLabel,
-                            color: item.color,
-                          ),
-                      ],
-                    ),
-                    const SizedBox(height: 7),
-                    Text(
-                      item.summaryLabel,
-                      style: Theme.of(
-                        context,
-                      ).textTheme.bodyMedium?.copyWith(color: AppTheme.muted),
-                    ),
-                    const SizedBox(height: 10),
-                    Wrap(
-                      spacing: 6,
-                      runSpacing: 6,
-                      children: [
-                        if (!archived)
-                          QuietIconButton(
-                            tooltip: context.l10n.sendReminder,
-                            onPressed: () => _sendReminder(item),
-                            icon: Icons.alarm_add_outlined,
-                            color: AppTheme.steel,
-                          ),
-                        if (!archived && !item.isSystem)
-                          QuietIconButton(
-                            tooltip: context.l10n.rename,
-                            onPressed: () => _showEditTodoDialog(item),
-                            icon: Icons.edit_outlined,
-                            color: AppTheme.primary,
-                          ),
-                        QuietIconButton(
-                          tooltip: context.l10n.changeColorTooltip,
-                          onPressed: archived
-                              ? null
-                              : () => _showColorDialog(item),
-                          icon: Icons.palette_outlined,
-                          color: item.color,
-                        ),
-                        if (archived)
-                          QuietIconButton(
-                            tooltip: context.l10n.restore,
-                            onPressed: () => _restoreTodo(item),
-                            icon: Icons.unarchive_outlined,
-                            color: AppTheme.primary,
-                          )
-                        else if (!item.isSystem)
-                          QuietIconButton(
-                            tooltip: context.l10n.archive,
-                            onPressed: () => _archiveTodo(item),
-                            icon: Icons.archive_outlined,
-                            color: AppTheme.muted,
-                          ),
-                      ],
-                    ),
-                  ],
+              Positioned(
+                left: -27,
+                top: 6,
+                child: Container(
+                  width: 12,
+                  height: 12,
+                  decoration: BoxDecoration(
+                    color: item.color,
+                    borderRadius: BorderRadius.circular(AppTheme.radiusPill),
+                    border: Border.all(color: AppTheme.surface, width: 2),
+                    boxShadow: [
+                      BoxShadow(
+                        color: item.color.withValues(alpha: 0.24),
+                        blurRadius: 8,
+                        offset: const Offset(0, 3),
+                      ),
+                    ],
+                  ),
                 ),
+              ),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          item.title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.titleMedium
+                              ?.copyWith(
+                                fontWeight: FontWeight.w900,
+                                height: 1.18,
+                              ),
+                        ),
+                      ),
+                      if (item.isSystem)
+                        AppChip(
+                          label: context.l10n.defaultLabel,
+                          color: item.color,
+                          maxWidth: compact ? 72 : null,
+                        ),
+                    ],
+                  ),
+                  SizedBox(height: compact ? 4 : 7),
+                  Row(
+                    children: [
+                      Icon(
+                        archived
+                            ? Icons.archive_outlined
+                            : Icons.timer_outlined,
+                        size: 14,
+                        color: item.color,
+                      ),
+                      const SizedBox(width: 5),
+                      Expanded(
+                        child: Text(
+                          item.summaryLabel,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.bodyMedium
+                              ?.copyWith(
+                                color: AppTheme.muted,
+                                fontSize: compact ? 12 : null,
+                                fontWeight: FontWeight.w600,
+                              ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  SizedBox(height: compact ? 8 : 10),
+                  Wrap(
+                    spacing: compact ? 5 : 6,
+                    runSpacing: compact ? 5 : 6,
+                    children: [
+                      if (!archived)
+                        _buildTaskActionButton(
+                          tooltip: context.l10n.sendReminder,
+                          onPressed: () => _sendReminder(item),
+                          icon: Icons.alarm_add_outlined,
+                          color: AppTheme.steel,
+                          compact: compact,
+                        ),
+                      if (!archived && !item.isSystem)
+                        _buildTaskActionButton(
+                          tooltip: context.l10n.rename,
+                          onPressed: () => _showEditTodoDialog(item),
+                          icon: Icons.edit_outlined,
+                          color: AppTheme.primary,
+                          compact: compact,
+                        ),
+                      _buildTaskActionButton(
+                        tooltip: context.l10n.changeColorTooltip,
+                        onPressed: archived
+                            ? null
+                            : () => _showColorDialog(item),
+                        icon: Icons.palette_outlined,
+                        color: item.color,
+                        compact: compact,
+                      ),
+                      if (archived)
+                        _buildTaskActionButton(
+                          tooltip: context.l10n.restore,
+                          onPressed: () => _restoreTodo(item),
+                          icon: Icons.unarchive_outlined,
+                          color: AppTheme.primary,
+                          compact: compact,
+                        )
+                      else if (!item.isSystem)
+                        _buildTaskActionButton(
+                          tooltip: context.l10n.archive,
+                          onPressed: () => _archiveTodo(item),
+                          icon: Icons.archive_outlined,
+                          color: AppTheme.muted,
+                          compact: compact,
+                        ),
+                    ],
+                  ),
+                ],
               ),
             ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTaskActionButton({
+    required IconData icon,
+    required VoidCallback? onPressed,
+    required String tooltip,
+    required Color color,
+    required bool compact,
+  }) {
+    if (!compact) {
+      return QuietIconButton(
+        icon: icon,
+        onPressed: onPressed,
+        tooltip: tooltip,
+        color: color,
+      );
+    }
+
+    return SizedBox.square(
+      dimension: 36,
+      child: IconButton(
+        tooltip: tooltip,
+        onPressed: onPressed,
+        icon: Icon(icon),
+        iconSize: 18,
+        padding: EdgeInsets.zero,
+        constraints: const BoxConstraints.tightFor(width: 36, height: 36),
+        visualDensity: VisualDensity.compact,
+        color: color,
+        style: IconButton.styleFrom(
+          backgroundColor: AppTheme.raisedSurface,
+          disabledForegroundColor: AppTheme.faint,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(AppTheme.radiusControl),
+            side: const BorderSide(color: AppTheme.border),
           ),
         ),
       ),
@@ -679,6 +979,7 @@ class _ColorSwatch extends StatelessWidget {
       borderRadius: BorderRadius.circular(999),
       child: AnimatedContainer(
         duration: AppTheme.fast,
+        curve: AppTheme.motionCurve,
         width: 36,
         height: 36,
         decoration: BoxDecoration(

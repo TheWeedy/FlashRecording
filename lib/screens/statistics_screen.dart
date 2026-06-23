@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:fl_chart/fl_chart.dart';
@@ -9,13 +10,19 @@ import '../utils/ai_service.dart';
 import '../utils/app_localizations.dart';
 import '../utils/todo_persistence.dart';
 import '../widgets/app_components.dart';
+import '../widgets/responsive_scaffold.dart';
 
 enum StatisticsViewMode { day, week }
 
 class StatisticsScreen extends StatefulWidget {
-  const StatisticsScreen({super.key, required this.events});
+  const StatisticsScreen({
+    super.key,
+    required this.events,
+    required this.onRefresh,
+  });
 
   final List<TimeEvent> events;
+  final Future<void> Function() onRefresh;
 
   @override
   State<StatisticsScreen> createState() => _StatisticsScreenState();
@@ -458,53 +465,94 @@ $eventLines
       delay: const Duration(milliseconds: 120),
       child: AppPanel(
         color: AppTheme.raisedSurface,
+        borderColor: AppTheme.sunshine.withValues(alpha: 0.35),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Icon(
-                  Icons.auto_awesome_outlined,
-                  color: AppTheme.primary,
+                const FlatIllustrationBadge(
+                  icon: Icons.psychology_outlined,
+                  color: AppTheme.warning,
+                  size: 48,
                 ),
-                const SizedBox(width: 8),
+                const SizedBox(width: 12),
                 Expanded(
-                  child: Text(
-                    context.l10n.aiScheduleInsight,
-                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ),
-                TextButton.icon(
-                  onPressed: _isAiLoading ? null : _generateAiInsight,
-                  icon: _isAiLoading
-                      ? const SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.psychology_outlined),
-                  label: Text(
-                    _isAiLoading ? context.l10n.thinking : context.l10n.analyze,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        context.l10n.aiScheduleInsight,
+                        style: Theme.of(context).textTheme.titleMedium
+                            ?.copyWith(
+                              color: AppTheme.ink,
+                              fontWeight: FontWeight.w900,
+                              height: 1.16,
+                            ),
+                      ),
+                      const SizedBox(height: 5),
+                      Text(
+                        context.l10n.aiInsightBody,
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: AppTheme.muted,
+                          height: 1.35,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ],
             ),
-            const SizedBox(height: 10),
-            if (_aiInsight == null)
-              Text(
-                context.l10n.aiInsightBody,
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: AppTheme.muted,
-                  height: 1.5,
+            const SizedBox(height: 14),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                onPressed: _isAiLoading ? null : _generateAiInsight,
+                icon: _isAiLoading
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.auto_awesome_outlined),
+                label: Text(
+                  _isAiLoading ? context.l10n.thinking : context.l10n.analyze,
                 ),
-              )
-            else
+              ),
+            ),
+            if (_aiInsight != null) ...[
+              const SizedBox(height: 14),
               AiMarkdownBlock(data: _aiInsight!),
+            ],
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildModeControls() {
+    return SegmentedButton<StatisticsViewMode>(
+      segments: [
+        ButtonSegment(
+          value: StatisticsViewMode.day,
+          label: Text(context.l10n.day),
+          icon: const Icon(Icons.today),
+        ),
+        ButtonSegment(
+          value: StatisticsViewMode.week,
+          label: Text(context.l10n.week),
+          icon: const Icon(Icons.view_week),
+        ),
+      ],
+      selected: {_viewMode},
+      onSelectionChanged: (selection) {
+        setState(() {
+          _viewMode = selection.first;
+          _touchedPieIndex = -1;
+        });
+      },
     );
   }
 
@@ -530,110 +578,152 @@ $eventLines
                   eyebrow: context.l10n.insightsEyebrow,
                   title: context.l10n.insightsTitle,
                   description: rangeLabel,
+                  showContext: false,
+                  showCompactMeta: true,
                   trailing: QuietIconButton(
                     onPressed: _pickDate,
                     icon: Icons.calendar_month,
                     tooltip: context.l10n.chooseDate,
                   ),
                 ),
-                const SizedBox(height: 16),
-                SegmentedButton<StatisticsViewMode>(
-                  segments: [
-                    ButtonSegment(
-                      value: StatisticsViewMode.day,
-                      label: Text(context.l10n.day),
-                      icon: const Icon(Icons.today),
-                    ),
-                    ButtonSegment(
-                      value: StatisticsViewMode.week,
-                      label: Text(context.l10n.week),
-                      icon: const Icon(Icons.view_week),
-                    ),
-                  ],
-                  selected: {_viewMode},
-                  onSelectionChanged: (selection) {
-                    setState(() {
-                      _viewMode = selection.first;
-                      _touchedPieIndex = -1;
-                    });
-                  },
-                ),
-                const SizedBox(height: 16),
+                const SizedBox(height: 12),
+                _buildModeControls(),
+                const SizedBox(height: 12),
               ],
             );
 
-            if (isLandscape) {
-              return Padding(
-                padding: const EdgeInsets.fromLTRB(
-                  AppTheme.pagePadding,
-                  18,
-                  AppTheme.pagePadding,
-                  18,
-                ),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(
-                      flex: 4,
-                      child: Padding(
-                        padding: const EdgeInsets.only(right: 32),
-                        child: CustomScrollView(
-                          slivers: [
-                            SliverToBoxAdapter(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.stretch,
-                                children: [
-                                  header,
-                                  _buildSummaryCards(),
-                                  const SizedBox(height: 16),
-                                  _buildAiInsightPanel(),
-                                  const SizedBox(height: 16),
-                                ],
+            if (layoutSizeOf(context) == AppLayoutSize.desktop) {
+              return RefreshIndicator(
+                onRefresh: widget.onRefresh,
+                child: SingleChildScrollView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  child: SizedBox(
+                    height: constraints.maxHeight,
+                    child: AdaptiveWorkspace(
+                      primaryFlex: 3,
+                      secondaryFlex: 4,
+                      tertiaryFlex: 4,
+                      primary: SingleChildScrollView(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            SectionHeader(
+                              eyebrow: context.l10n.insightsEyebrow,
+                              title: context.l10n.insightsTitle,
+                              description: rangeLabel,
+                              showContext: false,
+                              showCompactMeta: true,
+                              trailing: QuietIconButton(
+                                onPressed: _pickDate,
+                                icon: Icons.calendar_month,
+                                tooltip: context.l10n.chooseDate,
                               ),
                             ),
-                            SliverFillRemaining(
-                              hasScrollBody: true,
-                              child: Padding(
-                                padding: const EdgeInsets.only(bottom: 24),
-                                child: Center(child: _buildPieChart()),
-                              ),
-                            ),
+                            const SizedBox(height: AppTheme.space3),
+                            _buildModeControls(),
+                            const SizedBox(height: AppTheme.space3),
+                            _buildSummaryCards(),
+                            const SizedBox(height: AppTheme.space3),
+                            _buildAiInsightPanel(),
                           ],
                         ),
                       ),
+                      secondary: SingleChildScrollView(child: _buildPieChart()),
+                      tertiary: SingleChildScrollView(child: _buildTimeline()),
                     ),
-                    Expanded(
-                      flex: 5,
-                      child: Container(
-                        padding: const EdgeInsets.only(top: 0),
-                        child: SingleChildScrollView(
-                          padding: const EdgeInsets.only(bottom: 104),
-                          child: _buildTimeline(),
-                        ),
-                      ),
-                    ),
-                  ],
+                  ),
                 ),
               );
             }
 
-            return ListView(
-              padding: const EdgeInsets.fromLTRB(
-                AppTheme.pagePadding,
-                18,
-                AppTheme.pagePadding,
-                104,
+            if (isLandscape) {
+              return RefreshIndicator(
+                onRefresh: widget.onRefresh,
+                child: SingleChildScrollView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  child: SizedBox(
+                    height: constraints.maxHeight,
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(
+                        AppTheme.pagePadding,
+                        14,
+                        AppTheme.pagePadding,
+                        18,
+                      ),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(
+                            flex: 4,
+                            child: Padding(
+                              padding: const EdgeInsets.only(right: 32),
+                              child: CustomScrollView(
+                                slivers: [
+                                  SliverToBoxAdapter(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.stretch,
+                                      children: [
+                                        header,
+                                        _buildSummaryCards(),
+                                        const SizedBox(height: 12),
+                                        _buildAiInsightPanel(),
+                                        const SizedBox(height: 12),
+                                      ],
+                                    ),
+                                  ),
+                                  SliverFillRemaining(
+                                    hasScrollBody: true,
+                                    child: Padding(
+                                      padding: const EdgeInsets.only(
+                                        bottom: 24,
+                                      ),
+                                      child: Center(child: _buildPieChart()),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                          Expanded(
+                            flex: 5,
+                            child: Container(
+                              padding: const EdgeInsets.only(top: 0),
+                              child: SingleChildScrollView(
+                                padding: const EdgeInsets.only(bottom: 104),
+                                child: _buildTimeline(),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              );
+            }
+
+            return RefreshIndicator(
+              onRefresh: widget.onRefresh,
+              child: ListView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                padding: const EdgeInsets.fromLTRB(
+                  AppTheme.pagePadding,
+                  18,
+                  AppTheme.pagePadding,
+                  104,
+                ),
+                children: [
+                  header,
+                  _buildSummaryCards(),
+                  const SizedBox(height: 12),
+                  _buildAiInsightPanel(),
+                  const SizedBox(height: 12),
+                  _buildPieChart(),
+                  const SizedBox(height: 12),
+                  _buildTimeline(),
+                ],
               ),
-              children: [
-                header,
-                _buildSummaryCards(),
-                const SizedBox(height: 16),
-                _buildAiInsightPanel(),
-                const SizedBox(height: 16),
-                _buildPieChart(),
-                const SizedBox(height: 16),
-                _buildTimeline(),
-              ],
             );
           },
         ),
