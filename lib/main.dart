@@ -22,6 +22,7 @@ import 'utils/cloud_sync_service.dart';
 import 'utils/file_library_service.dart';
 import 'utils/notification_service.dart';
 import 'utils/persistence.dart';
+import 'widgets/app_components.dart';
 import 'widgets/responsive_scaffold.dart';
 
 const _welcomeSeenKey = 'welcome_seen_v3';
@@ -128,18 +129,23 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
       GlobalKey<NoteListScreenState>();
   final GlobalKey<TodoScreenState> _todosKey = GlobalKey<TodoScreenState>();
   final GlobalKey<FilesScreenState> _filesKey = GlobalKey<FilesScreenState>();
+  final PageFabController _fabController = PageFabController();
+  late final PageController _pageController;
   int _currentIndex = 0;
   List<TimeEvent> _events = [];
   Set<String> _selectedIds = {};
   bool _isSelectionMode = false;
   bool _isLoading = true;
   bool _isRefreshingCurrentPage = false;
+  bool _isResyncingPageAfterResize = false;
+  Size? _lastViewSize;
   Timer? _foregroundSyncTimer;
   StreamSubscription<List<SharedMediaFile>>? _shareSubscription;
 
   @override
   void initState() {
     super.initState();
+    _pageController = PageController();
     WidgetsBinding.instance.addObserver(this);
     _bootstrap();
     _listenForSharedContent();
@@ -151,6 +157,8 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _fabController.dispose();
+    _pageController.dispose();
     _foregroundSyncTimer?.cancel();
     _shareSubscription?.cancel();
     super.dispose();
@@ -270,10 +278,7 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
     if (_currentIndex == filesIndex) {
       return;
     }
-    setState(() {
-      _currentIndex = filesIndex;
-    });
-    unawaited(_refreshCurrentPage(force: false));
+    _onNavigate(filesIndex);
   }
 
   Future<void> _saveEvents() async {
@@ -341,14 +346,73 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
     await _saveEvents();
   }
 
-  void _onNavigate(int index) async {
-    if (_isSelectionMode && index != 0) {
+  void _selectPage(int index) {
+    if (_isResyncingPageAfterResize && index != _currentIndex) {
+      return;
+    }
+    if (index != _currentIndex) {
+      if (_isSelectionMode && _currentIndex == 0 && index != 0) {
+        _toggleSelectionMode();
+      }
+      setState(() {
+        _currentIndex = index;
+      });
+      unawaited(_refreshCurrentPage(force: false));
+    }
+    _fabController.setCurrentPage(index);
+  }
+
+  void _onNavigate(int index) {
+    if (index == _currentIndex) {
+      return;
+    }
+    if (_isSelectionMode && _currentIndex == 0 && index != 0) {
       _toggleSelectionMode();
     }
     setState(() {
       _currentIndex = index;
     });
     unawaited(_refreshCurrentPage(force: false));
+    if (_pageController.hasClients) {
+      unawaited(
+        _pageController
+            .animateToPage(
+              index,
+              duration: AppTheme.medium,
+              curve: AppTheme.motionCurve,
+            )
+            .whenComplete(() {
+              if (mounted && _currentIndex == index) {
+                _fabController.setCurrentPage(index);
+              }
+            }),
+      );
+    } else {
+      _fabController.setCurrentPage(index);
+    }
+  }
+
+  void _syncPageAfterSizeChange(Size viewSize) {
+    final previousSize = _lastViewSize;
+    _lastViewSize = viewSize;
+    if (previousSize == null || previousSize == viewSize) {
+      return;
+    }
+
+    final expectedIndex = _currentIndex;
+    _isResyncingPageAfterResize = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) {
+        return;
+      }
+      if (_pageController.hasClients) {
+        final page = _pageController.page;
+        if (page == null || (page - expectedIndex).abs() > 0.01) {
+          _pageController.jumpToPage(expectedIndex);
+        }
+      }
+      _isResyncingPageAfterResize = false;
+    });
   }
 
   @override
@@ -358,6 +422,7 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
     }
 
     final l10n = context.l10n;
+    _syncPageAfterSizeChange(MediaQuery.sizeOf(context));
     final screens = [
       EventListScreen(
         events: _events,
@@ -368,14 +433,20 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
         isSelectionMode: _isSelectionMode,
         selectedIds: _selectedIds,
         onToggleSelectionMode: _toggleSelectionMode,
+        fabController: _fabController,
+        pageIndex: 0,
       ),
       StatisticsScreen(
         events: _events,
         onRefresh: () => _refreshEntries(force: true),
       ),
-      NoteListScreen(key: _notesKey),
-      TodoScreen(key: _todosKey),
-      FilesScreen(key: _filesKey),
+      NoteListScreen(
+        key: _notesKey,
+        fabController: _fabController,
+        pageIndex: 2,
+      ),
+      TodoScreen(key: _todosKey, fabController: _fabController, pageIndex: 3),
+      FilesScreen(key: _filesKey, fabController: _fabController, pageIndex: 4),
     ];
 
     final navItems = [
@@ -444,7 +515,12 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
             label: l10n.navFiles,
           ),
         ],
-        body: IndexedStack(index: _currentIndex, children: screens),
+        body: PageView(
+          controller: _pageController,
+          onPageChanged: _selectPage,
+          children: screens,
+        ),
+        floatingActionButton: PageFabHost(controller: _fabController),
       ),
     );
   }

@@ -19,7 +19,14 @@ import 'file_detail_screen.dart';
 enum _FileLibraryView { active, archived }
 
 class FilesScreen extends StatefulWidget {
-  const FilesScreen({super.key});
+  const FilesScreen({
+    super.key,
+    required this.fabController,
+    required this.pageIndex,
+  });
+
+  final PageFabController fabController;
+  final int pageIndex;
 
   @override
   State<FilesScreen> createState() => FilesScreenState();
@@ -38,6 +45,7 @@ class FilesScreenState extends State<FilesScreen> {
   bool _isLoading = true;
   bool _isImporting = false;
   bool _isAiTitling = false;
+  bool _fabSyncScheduled = false;
 
   @override
   void initState() {
@@ -47,9 +55,74 @@ class FilesScreenState extends State<FilesScreen> {
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _scheduleFabSync();
+  }
+
+  @override
   void dispose() {
+    widget.fabController.clearConfig(widget.pageIndex);
     _searchController.dispose();
     super.dispose();
+  }
+
+  void _scheduleFabSync() {
+    if (_fabSyncScheduled) {
+      return;
+    }
+    _fabSyncScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _fabSyncScheduled = false;
+      if (!mounted) {
+        return;
+      }
+      if (_isLoading) {
+        widget.fabController.clearConfig(widget.pageIndex);
+        return;
+      }
+      widget.fabController.setConfig(widget.pageIndex, _buildFabConfig());
+    });
+  }
+
+  PageFabConfig _buildFabConfig() {
+    final showingArchive = _view == _FileLibraryView.archived;
+    final isSelectionMode = _selectedIds.isNotEmpty;
+    return PageFabConfig(
+      tooltip: isSelectionMode ? context.l10n.delete : context.l10n.addToFiles,
+      icon: isSelectionMode ? Icons.delete : Icons.add,
+      isDestructive: isSelectionMode,
+      onPressed: isSelectionMode
+          ? _deleteSelected
+          : _isImporting
+          ? null
+          : _showAddSheet,
+      actions: isSelectionMode
+          ? [
+              ContextualFabAction(
+                icon: Icons.psychology_outlined,
+                tooltip: context.l10n.askSelectedFiles,
+                onPressed: _showSelectedFilesAiChat,
+                backgroundColor: AppTheme.sunshineSoft,
+                foregroundColor: AppTheme.warning,
+              ),
+              ContextualFabAction(
+                icon: showingArchive
+                    ? Icons.unarchive_outlined
+                    : Icons.archive_outlined,
+                tooltip: showingArchive
+                    ? context.l10n.restoreSelected
+                    : context.l10n.archiveSelected,
+                onPressed: showingArchive ? _restoreSelected : _archiveSelected,
+              ),
+              ContextualFabAction(
+                icon: Icons.close,
+                tooltip: context.l10n.clearSelection,
+                onPressed: _exitSelectionMode,
+              ),
+            ]
+          : const [],
+    );
   }
 
   Future<void> _load() async {
@@ -67,6 +140,7 @@ class FilesScreenState extends State<FilesScreen> {
       _tags = tags;
       _isLoading = false;
     });
+    _scheduleFabSync();
   }
 
   Future<void> refresh() => _load();
@@ -111,6 +185,7 @@ class FilesScreenState extends State<FilesScreen> {
     setState(() {
       _isImporting = true;
     });
+    _scheduleFabSync();
     try {
       await action();
       await _load();
@@ -132,6 +207,7 @@ class FilesScreenState extends State<FilesScreen> {
         setState(() {
           _isImporting = false;
         });
+        _scheduleFabSync();
       }
     }
   }
@@ -299,6 +375,7 @@ class FilesScreenState extends State<FilesScreen> {
     setState(() {
       _isImporting = true;
     });
+    _scheduleFabSync();
     try {
       for (final file in result.files) {
         final path = file.path;
@@ -325,6 +402,7 @@ class FilesScreenState extends State<FilesScreen> {
         setState(() {
           _isImporting = false;
         });
+        _scheduleFabSync();
       }
     }
   }
@@ -1067,6 +1145,7 @@ class FilesScreenState extends State<FilesScreen> {
     setState(() {
       _selectedIds.clear();
     });
+    _scheduleFabSync();
   }
 
   void _openItem(FileItem item) {
@@ -1133,6 +1212,7 @@ class FilesScreenState extends State<FilesScreen> {
                 _view = _FileLibraryView.active;
                 _selectedTagId = null;
               });
+              _scheduleFabSync();
               _load();
             },
           ),
@@ -1151,6 +1231,7 @@ class FilesScreenState extends State<FilesScreen> {
                 _view = _FileLibraryView.archived;
                 _selectedTagId = null;
               });
+              _scheduleFabSync();
               _load();
             },
           ),
@@ -1169,6 +1250,7 @@ class FilesScreenState extends State<FilesScreen> {
                   _view = _FileLibraryView.active;
                   _selectedTagId = tag.id;
                 });
+                _scheduleFabSync();
                 _load();
               },
             ),
@@ -1369,12 +1451,13 @@ class FilesScreenState extends State<FilesScreen> {
         _selectedIds.add(id);
       }
     });
+    _scheduleFabSync();
   }
 
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+      return const Center(child: CircularProgressIndicator());
     }
 
     final selectedCount = _selectedIds.length;
@@ -1388,11 +1471,7 @@ class FilesScreenState extends State<FilesScreen> {
             _exitSelectionMode();
           }
         },
-        child: Scaffold(
-          body: SafeArea(child: _buildDesktopLayout(selectedCount)),
-          floatingActionButtonLocation: const AppTuckedEndFabLocation(),
-          floatingActionButton: _buildFileContextualFab(selectedCount),
-        ),
+        child: SafeArea(child: _buildDesktopLayout(selectedCount)),
       );
     }
     return PopScope(
@@ -1402,126 +1481,75 @@ class FilesScreenState extends State<FilesScreen> {
           _exitSelectionMode();
         }
       },
-      child: Scaffold(
-        body: SafeArea(
-          child: RefreshIndicator(
-            onRefresh: refreshFromCloud,
-            child: ListView(
-              physics: const AlwaysScrollableScrollPhysics(),
-              padding: EdgeInsets.fromLTRB(
-                AppTheme.pagePadding,
-                18,
-                AppTheme.pagePadding,
-                selectedCount > 0 ? 150 : 104,
-              ),
-              children: [
-                PageIntro(
-                  eyebrow: l10n.filesEyebrow,
-                  title: selectedCount == 0
-                      ? l10n.filesTitle
-                      : l10n.selectedCount(selectedCount),
-                  description: selectedCount == 0
-                      ? _filesHeaderMeta()
-                      : l10n.filesDescription,
-                  showContext: false,
-                  showCompactMeta: selectedCount == 0,
-                  trailing: selectedCount == 0
-                      ? QuietIconButton(
-                          icon: Icons.auto_awesome_outlined,
-                          tooltip: l10n.aiTitleFiles,
-                          onPressed: _showAiTitleSheet,
-                        )
-                      : null,
-                ),
-                const SizedBox(height: 16),
-                if (selectedCount == 0) ...[
-                  _buildSearch(),
-                  const SizedBox(height: 12),
-                ],
-                _buildTagFilters(),
-                const SizedBox(height: 16),
-                if (_isImporting)
-                  const LinearProgressIndicator(minHeight: 3)
-                else if (_items.isEmpty)
-                  EmptyState(
-                    icon: showingArchive
-                        ? Icons.archive_outlined
-                        : Icons.folder_copy_outlined,
-                    title: showingArchive
-                        ? l10n.ui('归档为空', 'Archive is empty', 'アーカイブは空です')
-                        : l10n.noFilesTitle,
-                    message: showingArchive
-                        ? l10n.ui(
-                            '归档后的文件会显示在这里，可随时恢复。',
-                            'Archived files appear here and can be restored anytime.',
-                            'アーカイブ済みファイルはここに表示され、いつでも復元できます。',
-                          )
-                        : l10n.noFilesMessage,
-                  )
-                else
-                  ...List.generate(
-                    _items.length,
-                    (index) => _buildItemCard(_items[index], index),
-                  ),
-              ],
+      child: SafeArea(
+        child: RefreshIndicator(
+          onRefresh: refreshFromCloud,
+          child: ListView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: EdgeInsets.fromLTRB(
+              AppTheme.pagePadding,
+              18,
+              AppTheme.pagePadding,
+              selectedCount > 0 ? 150 : 104,
             ),
+            children: [
+              PageIntro(
+                eyebrow: l10n.filesEyebrow,
+                title: selectedCount == 0
+                    ? l10n.filesTitle
+                    : l10n.selectedCount(selectedCount),
+                description: selectedCount == 0
+                    ? _filesHeaderMeta()
+                    : l10n.filesDescription,
+                showContext: false,
+                showCompactMeta: selectedCount == 0,
+                trailing: selectedCount == 0
+                    ? QuietIconButton(
+                        icon: Icons.auto_awesome_outlined,
+                        tooltip: l10n.aiTitleFiles,
+                        onPressed: _showAiTitleSheet,
+                      )
+                    : null,
+              ),
+              const SizedBox(height: 16),
+              _buildSearch(visible: selectedCount == 0),
+              const SizedBox(height: 12),
+              _buildTagFilters(),
+              const SizedBox(height: 16),
+              if (_isImporting)
+                const LinearProgressIndicator(minHeight: 3)
+              else if (_items.isEmpty)
+                EmptyState(
+                  icon: showingArchive
+                      ? Icons.archive_outlined
+                      : Icons.folder_copy_outlined,
+                  title: showingArchive
+                      ? l10n.ui('归档为空', 'Archive is empty', 'アーカイブは空です')
+                      : l10n.noFilesTitle,
+                  message: showingArchive
+                      ? l10n.ui(
+                          '归档后的文件会显示在这里，可随时恢复。',
+                          'Archived files appear here and can be restored anytime.',
+                          'アーカイブ済みファイルはここに表示され、いつでも復元できます。',
+                        )
+                      : l10n.noFilesMessage,
+                )
+              else
+                ...List.generate(
+                  _items.length,
+                  (index) => _buildItemCard(_items[index], index),
+                ),
+            ],
           ),
         ),
-        floatingActionButtonLocation: const AppTuckedEndFabLocation(),
-        floatingActionButton: _buildFileContextualFab(selectedCount),
       ),
     );
   }
 
-  Widget _buildFileContextualFab(int selectedCount) {
-    final showingArchive = _view == _FileLibraryView.archived;
-    final isSelectionMode = selectedCount > 0;
-    return ContextualActionFab(
-      heroTag: 'files-contextual-fab',
-      tooltip: isSelectionMode ? context.l10n.delete : context.l10n.addToFiles,
-      icon: isSelectionMode ? Icons.delete : Icons.add,
-      isDestructive: isSelectionMode,
-      onPressed: isSelectionMode
-          ? _deleteSelected
-          : _isImporting
-          ? null
-          : _showAddSheet,
-      actions: isSelectionMode
-          ? [
-              ContextualFabAction(
-                icon: Icons.psychology_outlined,
-                label: context.l10n.askSelectedFiles,
-                tooltip: context.l10n.askSelectedFiles,
-                onPressed: _showSelectedFilesAiChat,
-                backgroundColor: AppTheme.sunshineSoft,
-                foregroundColor: AppTheme.warning,
-              ),
-              ContextualFabAction(
-                icon: showingArchive
-                    ? Icons.unarchive_outlined
-                    : Icons.archive_outlined,
-                label: showingArchive
-                    ? context.l10n.restoreSelected
-                    : context.l10n.archiveSelected,
-                tooltip: showingArchive
-                    ? context.l10n.restoreSelected
-                    : context.l10n.archiveSelected,
-                onPressed: showingArchive ? _restoreSelected : _archiveSelected,
-              ),
-              ContextualFabAction(
-                icon: Icons.close,
-                label: context.l10n.clearSelection,
-                tooltip: context.l10n.clearSelection,
-                onPressed: _exitSelectionMode,
-              ),
-            ]
-          : const [],
-    );
-  }
-
-  Widget _buildSearch() {
-    return TextField(
+  Widget _buildSearch({bool visible = true}) {
+    final search = TextField(
       controller: _searchController,
+      enabled: visible,
       textInputAction: TextInputAction.search,
       onChanged: (_) => _load(),
       decoration: InputDecoration(
@@ -1530,13 +1558,21 @@ class FilesScreenState extends State<FilesScreen> {
         suffixIcon: _searchController.text.isEmpty
             ? null
             : IconButton(
-                onPressed: () {
-                  _searchController.clear();
-                  _load();
-                },
+                onPressed: visible
+                    ? () {
+                        _searchController.clear();
+                        _load();
+                      }
+                    : null,
                 icon: const Icon(Icons.close),
               ),
       ),
+    );
+    if (visible) {
+      return search;
+    }
+    return ExcludeSemantics(
+      child: IgnorePointer(child: Opacity(opacity: 0, child: search)),
     );
   }
 
@@ -1556,6 +1592,7 @@ class FilesScreenState extends State<FilesScreen> {
                 _view = _FileLibraryView.active;
                 _selectedTagId = null;
               });
+              _scheduleFabSync();
               _load();
             },
           ),
@@ -1571,6 +1608,7 @@ class FilesScreenState extends State<FilesScreen> {
                 _view = _FileLibraryView.archived;
                 _selectedTagId = null;
               });
+              _scheduleFabSync();
               _load();
             },
           ),
@@ -1586,6 +1624,7 @@ class FilesScreenState extends State<FilesScreen> {
                   _view = _FileLibraryView.active;
                   _selectedTagId = tag.id;
                 });
+                _scheduleFabSync();
                 _load();
               },
             ),
@@ -1609,7 +1648,9 @@ class FilesScreenState extends State<FilesScreen> {
           color: selected ? AppTheme.primarySoft : AppTheme.surface,
           borderColor: selected ? AppTheme.primary : AppTheme.border,
           child: InkWell(
-            onTap: () => _openItem(item),
+            onTap: isSelectionMode
+                ? () => _toggleSelection(item.id)
+                : () => _openItem(item),
             onLongPress: () => _toggleSelection(item.id),
             borderRadius: BorderRadius.circular(AppTheme.radiusCard),
             child: Padding(
@@ -1617,36 +1658,40 @@ class FilesScreenState extends State<FilesScreen> {
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  if (isSelectionMode) ...[
-                    SizedBox(
-                      width: 44,
-                      height: 44,
-                      child: Checkbox(
-                        value: selected,
-                        onChanged: (_) => _toggleSelection(item.id),
-                      ),
+                  SizedBox(
+                    width: 46,
+                    height: 46,
+                    child: Center(
+                      child: isSelectionMode
+                          ? Checkbox(
+                              value: selected,
+                              onChanged: (_) => _toggleSelection(item.id),
+                              materialTapTargetSize:
+                                  MaterialTapTargetSize.shrinkWrap,
+                              visualDensity: VisualDensity.compact,
+                            )
+                          : Container(
+                              width: 46,
+                              height: 46,
+                              decoration: BoxDecoration(
+                                color: archived
+                                    ? AppTheme.copperSoft
+                                    : AppTheme.primarySoft,
+                                borderRadius: BorderRadius.circular(14),
+                              ),
+                              child: Icon(
+                                archived
+                                    ? Icons.archive_outlined
+                                    : _iconForKind(item.kind),
+                                color: archived
+                                    ? AppTheme.copper
+                                    : AppTheme.primary,
+                                size: 21,
+                              ),
+                            ),
                     ),
-                    const SizedBox(width: 8),
-                  ] else ...[
-                    Container(
-                      width: 46,
-                      height: 46,
-                      decoration: BoxDecoration(
-                        color: archived
-                            ? AppTheme.copperSoft
-                            : AppTheme.primarySoft,
-                        borderRadius: BorderRadius.circular(14),
-                      ),
-                      child: Icon(
-                        archived
-                            ? Icons.archive_outlined
-                            : _iconForKind(item.kind),
-                        color: archived ? AppTheme.copper : AppTheme.primary,
-                        size: 21,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                  ],
+                  ),
+                  const SizedBox(width: 12),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,

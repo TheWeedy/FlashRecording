@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../theme/app_theme.dart';
+import 'app_components.dart';
 
 enum AppLayoutSize { mobile, tablet, desktop }
 
@@ -71,6 +72,8 @@ class ResponsiveScaffold extends StatelessWidget {
             ),
           ),
         ),
+        floatingActionButtonLocation: const AppTuckedEndFabLocation(),
+        floatingActionButtonAnimator: FloatingActionButtonAnimator.noAnimation,
         floatingActionButton: floatingActionButton,
       );
     }
@@ -132,15 +135,13 @@ class ResponsiveScaffold extends StatelessWidget {
                   width: 42,
                   height: 42,
                   decoration: BoxDecoration(
-                    color: AppTheme.primary,
+                    color: AppTheme.surface,
                     borderRadius: BorderRadius.circular(AppTheme.radiusControl),
+                    border: Border.all(color: AppTheme.border),
                     boxShadow: AppTheme.liftShadow,
                   ),
-                  child: const Icon(
-                    Icons.bolt_rounded,
-                    color: Colors.white,
-                    size: 21,
-                  ),
+                  clipBehavior: Clip.antiAlias,
+                  child: Image.asset('assets/app_icon.png', fit: BoxFit.cover),
                 ),
               ),
               destinations: destinations,
@@ -149,6 +150,8 @@ class ResponsiveScaffold extends StatelessWidget {
           Expanded(child: body),
         ],
       ),
+      floatingActionButtonLocation: const AppTuckedEndFabLocation(),
+      floatingActionButtonAnimator: FloatingActionButtonAnimator.noAnimation,
       floatingActionButton: floatingActionButton,
     );
   }

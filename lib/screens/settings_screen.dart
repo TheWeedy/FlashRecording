@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../app_info.dart';
@@ -67,10 +69,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _loadSettings() async {
-    final settings = await _settingsService.load();
-    final aiSettings = await _aiSettingsService.load();
-    final preferences = await _preferencesService.load();
-    final session = await _authService.loadSession(settings);
+    final results = await Future.wait<Object>([
+      _settingsService.load(),
+      _aiSettingsService.load(),
+      _preferencesService.load(),
+    ]);
+    final settings = results[0] as SyncSettings;
+    final aiSettings = results[1] as AiSettings;
+    final preferences = results[2] as AppPreferences;
     if (!mounted) {
       return;
     }
@@ -82,8 +88,25 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _aiApiKeyController.text = aiSettings.apiKey;
       _aiModelController.text = aiSettings.model;
       _preferences = preferences;
-      _session = session;
+      _session = PocketBaseSession(
+        serverUrl: settings.serverUrl.trim(),
+        username: settings.username.trim(),
+        isLoggedIn: false,
+      );
       _isLoading = false;
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited(_loadSession(settings));
+    });
+  }
+
+  Future<void> _loadSession(SyncSettings settings) async {
+    final session = await _authService.loadSession(settings);
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _session = session;
     });
   }
 

@@ -12,7 +12,14 @@ import '../widgets/responsive_scaffold.dart';
 import 'note_editor_screen.dart';
 
 class NoteListScreen extends StatefulWidget {
-  const NoteListScreen({super.key});
+  const NoteListScreen({
+    super.key,
+    required this.fabController,
+    required this.pageIndex,
+  });
+
+  final PageFabController fabController;
+  final int pageIndex;
 
   @override
   State<NoteListScreen> createState() => NoteListScreenState();
@@ -27,12 +34,66 @@ class NoteListScreenState extends State<NoteListScreen> {
   String? _focusedNoteId;
   bool _isLoading = true;
   bool _isSelectionMode = false;
+  bool _fabSyncScheduled = false;
 
   @override
   void initState() {
     super.initState();
     _loadNotes();
     unawaited(refreshFromCloud(force: false));
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _scheduleFabSync();
+  }
+
+  @override
+  void dispose() {
+    widget.fabController.clearConfig(widget.pageIndex);
+    super.dispose();
+  }
+
+  void _scheduleFabSync() {
+    if (_fabSyncScheduled) {
+      return;
+    }
+    _fabSyncScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _fabSyncScheduled = false;
+      if (!mounted) {
+        return;
+      }
+      if (_isLoading) {
+        widget.fabController.clearConfig(widget.pageIndex);
+        return;
+      }
+      widget.fabController.setConfig(widget.pageIndex, _buildFabConfig());
+    });
+  }
+
+  PageFabConfig _buildFabConfig() {
+    return PageFabConfig(
+      tooltip: _isSelectionMode ? context.l10n.delete : context.l10n.createNote,
+      icon: _isSelectionMode ? Icons.delete : Icons.add,
+      isDestructive: _isSelectionMode,
+      onPressed: _isSelectionMode ? _deleteSelectedNotes : _openEditor,
+      actions: _isSelectionMode
+          ? [
+              ContextualFabAction(
+                icon: Icons.archive_outlined,
+                tooltip: context.l10n.archiveSelected,
+                onPressed: _archiveSelectedNotes,
+              ),
+              ContextualFabAction(
+                icon: Icons.close,
+                tooltip: context.l10n.clearSelection,
+                onPressed: _exitSelectionMode,
+              ),
+            ]
+          : const [],
+    );
   }
 
   Future<void> refreshFromCloud({bool force = true}) async {
@@ -51,6 +112,7 @@ class NoteListScreenState extends State<NoteListScreen> {
       _archivedNotes = archived;
       _isLoading = false;
     });
+    _scheduleFabSync();
   }
 
   Future<void> _openEditor({NoteItem? note}) async {
@@ -140,6 +202,7 @@ class NoteListScreenState extends State<NoteListScreen> {
       _selectedIds.clear();
       _isSelectionMode = false;
     });
+    _scheduleFabSync();
     await _loadNotes();
   }
 
@@ -155,6 +218,7 @@ class NoteListScreenState extends State<NoteListScreen> {
         _isSelectionMode = true;
       }
     });
+    _scheduleFabSync();
   }
 
   void _exitSelectionMode() {
@@ -162,6 +226,7 @@ class NoteListScreenState extends State<NoteListScreen> {
       _isSelectionMode = false;
       _selectedIds.clear();
     });
+    _scheduleFabSync();
   }
 
   String _formatDateTime(DateTime value) {
@@ -213,7 +278,6 @@ class NoteListScreenState extends State<NoteListScreen> {
                           itemBuilder: (context, index) => _buildNoteCard(
                             _archivedNotes[index],
                             archived: true,
-                            index: index,
                           ),
                         ),
                 ),
@@ -228,126 +292,140 @@ class NoteListScreenState extends State<NoteListScreen> {
   Widget _buildNoteCard(
     NoteItem note, {
     bool archived = false,
-    int index = 0,
     bool desktop = false,
   }) {
     final isSelected =
         _selectedIds.contains(note.id) ||
         desktop && _focusedNote?.id == note.id;
-    return FadeSlideIn(
-      delay: Duration(milliseconds: 30 * (index > 8 ? 8 : index)),
-      child: Padding(
-        padding: const EdgeInsets.only(bottom: 8),
-        child: AnimatedContainer(
-          duration: AppTheme.fast,
-          curve: AppTheme.motionCurve,
-          decoration: BoxDecoration(
-            color: isSelected ? AppTheme.copperSoft : AppTheme.surface,
-            borderRadius: BorderRadius.circular(AppTheme.radiusCard),
-            border: Border.all(
-              color: isSelected ? AppTheme.copper : AppTheme.border,
-            ),
-            boxShadow: isSelected ? [] : AppTheme.cardShadow,
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: AnimatedContainer(
+        duration: AppTheme.fast,
+        curve: AppTheme.motionCurve,
+        decoration: BoxDecoration(
+          color: isSelected ? AppTheme.copperSoft : AppTheme.surface,
+          borderRadius: BorderRadius.circular(AppTheme.radiusCard),
+          border: Border.all(
+            color: isSelected ? AppTheme.copper : AppTheme.border,
           ),
-          child: InkWell(
-            borderRadius: BorderRadius.circular(AppTheme.radiusCard),
-            onTap: desktop
-                ? () => setState(() => _focusedNoteId = note.id)
-                : archived
-                ? () => _openEditor(note: note)
-                : _isSelectionMode
-                ? () => _toggleSelection(note)
-                : () => _openEditor(note: note),
-            onLongPress: archived
-                ? null
-                : () {
-                    if (!_isSelectionMode) {
-                      setState(() {
-                        _isSelectionMode = true;
-                        _selectedIds.add(note.id);
-                      });
-                    }
-                  },
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(11, 10, 10, 10),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  if (_isSelectionMode && !archived) ...[
-                    Checkbox(
-                      value: isSelected,
-                      onChanged: (_) => _toggleSelection(note),
+          boxShadow: isSelected ? [] : AppTheme.cardShadow,
+        ),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(AppTheme.radiusCard),
+          onTap: desktop
+              ? () => setState(() => _focusedNoteId = note.id)
+              : archived
+              ? () => _openEditor(note: note)
+              : _isSelectionMode
+              ? () => _toggleSelection(note)
+              : () => _openEditor(note: note),
+          onLongPress: archived
+              ? null
+              : () {
+                  if (!_isSelectionMode) {
+                    setState(() {
+                      _isSelectionMode = true;
+                      _selectedIds.add(note.id);
+                    });
+                    _scheduleFabSync();
+                  }
+                },
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(11, 10, 10, 10),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (_isSelectionMode && !archived) ...[
+                  Checkbox(
+                    value: isSelected,
+                    onChanged: (_) => _toggleSelection(note),
+                  ),
+                  const SizedBox(width: 4),
+                ] else ...[
+                  Container(
+                    width: 30,
+                    height: 30,
+                    decoration: BoxDecoration(
+                      color: AppTheme.copper.withValues(alpha: 0.13),
+                      borderRadius: BorderRadius.circular(8),
                     ),
-                    const SizedBox(width: 4),
-                  ] else ...[
-                    Container(
-                      width: 30,
-                      height: 30,
-                      decoration: BoxDecoration(
-                        color: AppTheme.copper.withValues(alpha: 0.13),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: const Icon(
-                        Icons.notes_rounded,
-                        size: 17,
-                        color: AppTheme.copper,
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                  ],
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          note.title,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: Theme.of(context).textTheme.titleMedium
-                              ?.copyWith(
-                                fontWeight: FontWeight.w800,
-                                height: 1.16,
-                              ),
-                        ),
-                        const SizedBox(height: 5),
-                        Text(
-                          note.plainTextPreview.isEmpty
-                              ? context.l10n.ui('空白笔记', 'Blank note', '空白ノート')
-                              : note.plainTextPreview,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: Theme.of(context).textTheme.bodyMedium
-                              ?.copyWith(
-                                color: AppTheme.muted,
-                                height: 1.3,
-                                fontWeight: FontWeight.w500,
-                              ),
-                        ),
-                        const SizedBox(height: 7),
-                        AppChip(
-                          icon: Icons.update,
-                          label: context.l10n.updatedAt(
-                            _formatDateTime(note.updatedAt),
-                          ),
-                          color: AppTheme.steel,
-                        ),
-                      ],
+                    child: const Icon(
+                      Icons.notes_rounded,
+                      size: 17,
+                      color: AppTheme.copper,
                     ),
                   ),
-                  const SizedBox(width: 8),
-                  if (archived)
-                    QuietIconButton(
-                      tooltip: context.l10n.restore,
-                      onPressed: () => _restoreNote(note),
-                      icon: Icons.unarchive_outlined,
-                      color: AppTheme.primary,
-                    ),
+                  const SizedBox(width: 10),
                 ],
-              ),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        note.title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.titleMedium
+                            ?.copyWith(
+                              fontWeight: FontWeight.w800,
+                              height: 1.16,
+                            ),
+                      ),
+                      const SizedBox(height: 5),
+                      Text(
+                        note.plainTextPreview.isEmpty
+                            ? context.l10n.ui('空白笔记', 'Blank note', '空白ノート')
+                            : note.plainTextPreview,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          color: AppTheme.muted,
+                          height: 1.3,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                      const SizedBox(height: 7),
+                      AppChip(
+                        icon: Icons.update,
+                        label: context.l10n.updatedAt(
+                          _formatDateTime(note.updatedAt),
+                        ),
+                        color: AppTheme.steel,
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                if (archived)
+                  QuietIconButton(
+                    tooltip: context.l10n.restore,
+                    onPressed: () => _restoreNote(note),
+                    icon: Icons.unarchive_outlined,
+                    color: AppTheme.primary,
+                  ),
+              ],
             ),
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildNoteList({required bool desktop}) {
+    if (_notes.isEmpty) {
+      return SliverToBoxAdapter(
+        child: EmptyState(
+          icon: Icons.sticky_note_2_outlined,
+          title: context.l10n.noNotesTitle,
+          message: context.l10n.noNotesMessage,
+        ),
+      );
+    }
+    return SliverList.builder(
+      itemCount: _notes.length,
+      itemBuilder: (context, index) {
+        return _buildNoteCard(_notes[index], desktop: desktop);
+      },
     );
   }
 
@@ -412,41 +490,32 @@ class NoteListScreenState extends State<NoteListScreen> {
       secondaryFlex: 5,
       primary: RefreshIndicator(
         onRefresh: refreshFromCloud,
-        child: ListView(
+        child: CustomScrollView(
           physics: const AlwaysScrollableScrollPhysics(),
-          children: [
-            SectionHeader(
-              eyebrow: context.l10n.notesEyebrow,
-              title: _isSelectionMode
-                  ? context.l10n.selectedCount(_selectedIds.length)
-                  : context.l10n.notesTitle,
-              description: _isSelectionMode
-                  ? context.l10n.ui(
-                      '删除前请确认选中的笔记。',
-                      'Review selected notes before deleting them.',
-                    )
-                  : _notesHeaderMeta(),
-              showContext: false,
-              showCompactMeta: true,
-              trailing: QuietIconButton(
-                icon: Icons.archive_outlined,
-                tooltip: context.l10n.archivedNotes,
-                onPressed: _showArchivedNotes,
+          slivers: [
+            SliverToBoxAdapter(
+              child: SectionHeader(
+                eyebrow: context.l10n.notesEyebrow,
+                title: _isSelectionMode
+                    ? context.l10n.selectedCount(_selectedIds.length)
+                    : context.l10n.notesTitle,
+                description: _isSelectionMode
+                    ? context.l10n.ui(
+                        '删除前请确认选中的笔记。',
+                        'Review selected notes before deleting them.',
+                      )
+                    : _notesHeaderMeta(),
+                showContext: false,
+                showCompactMeta: true,
+                trailing: QuietIconButton(
+                  icon: Icons.archive_outlined,
+                  tooltip: context.l10n.archivedNotes,
+                  onPressed: _showArchivedNotes,
+                ),
               ),
             ),
-            const SizedBox(height: AppTheme.space3),
-            if (_notes.isEmpty)
-              EmptyState(
-                icon: Icons.sticky_note_2_outlined,
-                title: context.l10n.noNotesTitle,
-                message: context.l10n.noNotesMessage,
-              )
-            else
-              ...List.generate(
-                _notes.length,
-                (index) =>
-                    _buildNoteCard(_notes[index], index: index, desktop: true),
-              ),
+            const SliverToBoxAdapter(child: SizedBox(height: AppTheme.space3)),
+            _buildNoteList(desktop: true),
           ],
         ),
       ),
@@ -457,39 +526,11 @@ class NoteListScreenState extends State<NoteListScreen> {
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+      return const Center(child: CircularProgressIndicator());
     }
 
     if (isDesktopLayout(context)) {
-      return Scaffold(
-        body: SafeArea(child: _buildDesktopLayout()),
-        floatingActionButtonLocation: const AppTuckedEndFabLocation(),
-        floatingActionButton: ContextualActionFab(
-          heroTag: 'notes-contextual-fab',
-          tooltip: _isSelectionMode
-              ? context.l10n.delete
-              : context.l10n.createNote,
-          icon: _isSelectionMode ? Icons.delete : Icons.add,
-          isDestructive: _isSelectionMode,
-          onPressed: _isSelectionMode ? _deleteSelectedNotes : _openEditor,
-          actions: _isSelectionMode
-              ? [
-                  ContextualFabAction(
-                    icon: Icons.archive_outlined,
-                    label: context.l10n.archiveSelected,
-                    tooltip: context.l10n.archiveSelected,
-                    onPressed: _archiveSelectedNotes,
-                  ),
-                  ContextualFabAction(
-                    icon: Icons.close,
-                    label: context.l10n.clearSelection,
-                    tooltip: context.l10n.clearSelection,
-                    onPressed: _exitSelectionMode,
-                  ),
-                ]
-              : const [],
-        ),
-      );
+      return SafeArea(child: _buildDesktopLayout());
     }
 
     return PopScope(
@@ -499,86 +540,56 @@ class NoteListScreenState extends State<NoteListScreen> {
           _exitSelectionMode();
         }
       },
-      child: Scaffold(
-        body: SafeArea(
-          child: RefreshIndicator(
-            onRefresh: refreshFromCloud,
-            child: ListView(
-              physics: const AlwaysScrollableScrollPhysics(),
-              padding: const EdgeInsets.fromLTRB(
-                AppTheme.pagePadding,
-                18,
-                AppTheme.pagePadding,
-                104,
-              ),
-              children: [
-                PageIntro(
-                  eyebrow: context.l10n.notesEyebrow,
-                  title: _isSelectionMode
-                      ? context.l10n.selectedCount(_selectedIds.length)
-                      : context.l10n.notesTitle,
-                  description: _isSelectionMode
-                      ? context.l10n.ui(
-                          '删除前请确认选中的笔记。',
-                          'Review selected notes before deleting them.',
-                        )
-                      : _notesHeaderMeta(),
-                  showContext: false,
-                  showCompactMeta: true,
-                  trailing: _isSelectionMode
-                      ? QuietIconButton(
-                          onPressed: _exitSelectionMode,
-                          icon: Icons.close,
-                          tooltip: context.l10n.clearSelection,
-                          color: AppTheme.danger,
-                        )
-                      : QuietIconButton(
-                          onPressed: _showArchivedNotes,
-                          icon: Icons.archive_outlined,
-                          tooltip: context.l10n.archivedNotes,
-                        ),
+      child: SafeArea(
+        child: RefreshIndicator(
+          onRefresh: refreshFromCloud,
+          child: CustomScrollView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            slivers: [
+              SliverPadding(
+                padding: const EdgeInsets.fromLTRB(
+                  AppTheme.pagePadding,
+                  18,
+                  AppTheme.pagePadding,
+                  104,
                 ),
-                const SizedBox(height: 12),
-                if (_notes.isEmpty)
-                  EmptyState(
-                    icon: Icons.sticky_note_2_outlined,
-                    title: context.l10n.noNotesTitle,
-                    message: context.l10n.noNotesMessage,
-                  )
-                else
-                  ...List.generate(
-                    _notes.length,
-                    (index) => _buildNoteCard(_notes[index], index: index),
-                  ),
-              ],
-            ),
+                sliver: SliverMainAxisGroup(
+                  slivers: [
+                    SliverToBoxAdapter(
+                      child: PageIntro(
+                        eyebrow: context.l10n.notesEyebrow,
+                        title: _isSelectionMode
+                            ? context.l10n.selectedCount(_selectedIds.length)
+                            : context.l10n.notesTitle,
+                        description: _isSelectionMode
+                            ? context.l10n.ui(
+                                '删除前请确认选中的笔记。',
+                                'Review selected notes before deleting them.',
+                              )
+                            : _notesHeaderMeta(),
+                        showContext: false,
+                        showCompactMeta: true,
+                        trailing: _isSelectionMode
+                            ? QuietIconButton(
+                                onPressed: _exitSelectionMode,
+                                icon: Icons.close,
+                                tooltip: context.l10n.clearSelection,
+                                color: AppTheme.danger,
+                              )
+                            : QuietIconButton(
+                                onPressed: _showArchivedNotes,
+                                icon: Icons.archive_outlined,
+                                tooltip: context.l10n.archivedNotes,
+                              ),
+                      ),
+                    ),
+                    const SliverToBoxAdapter(child: SizedBox(height: 12)),
+                    _buildNoteList(desktop: false),
+                  ],
+                ),
+              ),
+            ],
           ),
-        ),
-        floatingActionButtonLocation: const AppTuckedEndFabLocation(),
-        floatingActionButton: ContextualActionFab(
-          heroTag: 'notes-contextual-fab',
-          tooltip: _isSelectionMode
-              ? context.l10n.delete
-              : context.l10n.createNote,
-          icon: _isSelectionMode ? Icons.delete : Icons.add,
-          isDestructive: _isSelectionMode,
-          onPressed: _isSelectionMode ? _deleteSelectedNotes : _openEditor,
-          actions: _isSelectionMode
-              ? [
-                  ContextualFabAction(
-                    icon: Icons.archive_outlined,
-                    label: context.l10n.archiveSelected,
-                    tooltip: context.l10n.archiveSelected,
-                    onPressed: _archiveSelectedNotes,
-                  ),
-                  ContextualFabAction(
-                    icon: Icons.close,
-                    label: context.l10n.clearSelection,
-                    tooltip: context.l10n.clearSelection,
-                    onPressed: _exitSelectionMode,
-                  ),
-                ]
-              : const [],
         ),
       ),
     );

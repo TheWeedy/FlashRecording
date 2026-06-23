@@ -22,6 +22,8 @@ class EventListScreen extends StatefulWidget {
     required this.isSelectionMode,
     required this.selectedIds,
     required this.onToggleSelectionMode,
+    required this.fabController,
+    required this.pageIndex,
   });
 
   final List<TimeEvent> events;
@@ -32,6 +34,8 @@ class EventListScreen extends StatefulWidget {
   final bool isSelectionMode;
   final Set<String> selectedIds;
   final VoidCallback onToggleSelectionMode;
+  final PageFabController fabController;
+  final int pageIndex;
 
   @override
   State<EventListScreen> createState() => _EventListScreenState();
@@ -50,6 +54,7 @@ class _EventListScreenState extends State<EventListScreen> {
   String? _entryLinkedTodoId;
   int _entrySuggestedMinutes = 0;
   String? _focusedEventId;
+  bool _fabSyncScheduled = false;
 
   @override
   void initState() {
@@ -58,12 +63,64 @@ class _EventListScreenState extends State<EventListScreen> {
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _scheduleFabSync();
+  }
+
+  @override
+  void didUpdateWidget(covariant EventListScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.isSelectionMode != widget.isSelectionMode ||
+        oldWidget.selectedIds.length != widget.selectedIds.length) {
+      _scheduleFabSync();
+    }
+  }
+
+  @override
   void dispose() {
+    widget.fabController.clearConfig(widget.pageIndex);
     _entryDescriptionController.dispose();
     _entryNoteController.dispose();
     _entryHoursController.dispose();
     _entryMinutesController.dispose();
     super.dispose();
+  }
+
+  void _scheduleFabSync() {
+    if (_fabSyncScheduled) {
+      return;
+    }
+    _fabSyncScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _fabSyncScheduled = false;
+      if (!mounted) {
+        return;
+      }
+      widget.fabController.setConfig(widget.pageIndex, _buildFabConfig());
+    });
+  }
+
+  PageFabConfig _buildFabConfig() {
+    return PageFabConfig(
+      tooltip: widget.isSelectionMode
+          ? context.l10n.delete
+          : context.l10n.addEntryTooltip,
+      icon: widget.isSelectionMode ? Icons.delete : Icons.add,
+      isDestructive: widget.isSelectionMode,
+      onPressed: widget.isSelectionMode
+          ? () => unawaited(widget.onPerformDelete())
+          : _openAddEventSheet,
+      actions: widget.isSelectionMode
+          ? [
+              ContextualFabAction(
+                icon: Icons.close,
+                tooltip: context.l10n.clearSelection,
+                onPressed: widget.onToggleSelectionMode,
+              ),
+            ]
+          : const [],
+    );
   }
 
   Future<void> _loadAvailableTodos() async {
@@ -314,6 +371,12 @@ class _EventListScreenState extends State<EventListScreen> {
     return '$hours hr $minutes min';
   }
 
+  String _formatCompactDuration(int totalMinutes) {
+    final hours = totalMinutes ~/ 60;
+    final minutes = totalMinutes % 60;
+    return '$hours:${minutes.toString().padLeft(2, '0')}';
+  }
+
   String _formatDateTime(DateTime value) {
     final date =
         '${value.year}-${value.month.toString().padLeft(2, '0')}-${value.day.toString().padLeft(2, '0')}';
@@ -355,47 +418,50 @@ class _EventListScreenState extends State<EventListScreen> {
     );
   }
 
+  Widget _buildEntryCard(TimeEvent event, {required bool desktop}) {
+    final isFocused = desktop && _focusedEvent?.id == event.id;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: _EntryCard(
+        event: event,
+        tag: _tagForEvent(event),
+        color: _colorForEvent(event),
+        timestamp: _formatDateTime(event.addedAt),
+        selected: isFocused || widget.selectedIds.contains(event.id),
+        selectionMode: widget.isSelectionMode,
+        onTap: widget.isSelectionMode
+            ? () => _toggleEventSelection(event)
+            : desktop
+            ? () => setState(() => _focusedEventId = event.id)
+            : () => _showEntryDetails(event),
+        onLongPress: widget.isSelectionMode
+            ? null
+            : () {
+                widget.onDeleteSelected({event.id});
+                widget.onToggleSelectionMode();
+              },
+      ),
+    );
+  }
+
   Widget _buildEntryList({required bool desktop}) {
     if (widget.events.isEmpty) {
-      return FadeSlideIn(
-        delay: const Duration(milliseconds: 80),
-        child: EmptyState(
-          icon: Icons.view_agenda_outlined,
-          title: context.l10n.noEntriesTitle,
-          message: context.l10n.noEntriesMessage,
+      return SliverToBoxAdapter(
+        child: FadeSlideIn(
+          delay: const Duration(milliseconds: 80),
+          child: EmptyState(
+            icon: Icons.view_agenda_outlined,
+            title: context.l10n.noEntriesTitle,
+            message: context.l10n.noEntriesMessage,
+          ),
         ),
       );
     }
-    return Column(
-      children: List.generate(widget.events.length, (index) {
-        final event = widget.events[index];
-        final isFocused = desktop && _focusedEvent?.id == event.id;
-        return FadeSlideIn(
-          delay: Duration(milliseconds: 30 * (index > 8 ? 8 : index)),
-          child: Padding(
-            padding: const EdgeInsets.only(bottom: 10),
-            child: _EntryCard(
-              event: event,
-              tag: _tagForEvent(event),
-              color: _colorForEvent(event),
-              timestamp: _formatDateTime(event.addedAt),
-              selected: isFocused || widget.selectedIds.contains(event.id),
-              selectionMode: widget.isSelectionMode,
-              onTap: widget.isSelectionMode
-                  ? () => _toggleEventSelection(event)
-                  : desktop
-                  ? () => setState(() => _focusedEventId = event.id)
-                  : () => _showEntryDetails(event),
-              onLongPress: widget.isSelectionMode
-                  ? null
-                  : () {
-                      widget.onDeleteSelected({event.id});
-                      widget.onToggleSelectionMode();
-                    },
-            ),
-          ),
-        );
-      }),
+    return SliverList.builder(
+      itemCount: widget.events.length,
+      itemBuilder: (context, index) {
+        return _buildEntryCard(widget.events[index], desktop: desktop);
+      },
     );
   }
 
@@ -414,7 +480,7 @@ class _EventListScreenState extends State<EventListScreen> {
         Expanded(
           child: MetricTile(
             label: context.l10n.duration,
-            value: _formatDuration(_todayMinutes),
+            value: _formatCompactDuration(_todayMinutes),
             icon: Icons.timelapse,
             accent: AppTheme.steel,
           ),
@@ -506,36 +572,38 @@ class _EventListScreenState extends State<EventListScreen> {
       secondaryFlex: 4,
       primary: RefreshIndicator(
         onRefresh: _refresh,
-        child: ListView(
+        child: CustomScrollView(
           physics: const AlwaysScrollableScrollPhysics(),
-          children: [
-            SectionHeader(
-              eyebrow: context.l10n.entriesEyebrow,
-              title: widget.isSelectionMode
-                  ? context.l10n.selectedCount(selectedCount)
-                  : context.l10n.navEntries,
-              description: widget.isSelectionMode
-                  ? context.l10n.ui(
-                      '选择要从本地记录中删除的条目。',
-                      'Choose the records you want to remove from your local ledger.',
-                    )
-                  : _entriesHeaderMeta(),
-              showContext: false,
-              showCompactMeta: true,
-              trailing: widget.isSelectionMode
-                  ? QuietIconButton(
-                      tooltip: context.l10n.clearSelection,
-                      icon: Icons.close,
-                      onPressed: widget.onToggleSelectionMode,
-                      color: AppTheme.danger,
-                    )
-                  : QuietIconButton(
-                      tooltip: context.l10n.settings,
-                      icon: Icons.tune,
-                      onPressed: _showSettingsDialog,
-                    ),
+          slivers: [
+            SliverToBoxAdapter(
+              child: SectionHeader(
+                eyebrow: context.l10n.entriesEyebrow,
+                title: widget.isSelectionMode
+                    ? context.l10n.selectedCount(selectedCount)
+                    : context.l10n.navEntries,
+                description: widget.isSelectionMode
+                    ? context.l10n.ui(
+                        '选择要从本地记录中删除的条目。',
+                        'Choose the records you want to remove from your local ledger.',
+                      )
+                    : _entriesHeaderMeta(),
+                showContext: false,
+                showCompactMeta: true,
+                trailing: widget.isSelectionMode
+                    ? QuietIconButton(
+                        tooltip: context.l10n.clearSelection,
+                        icon: Icons.close,
+                        onPressed: widget.onToggleSelectionMode,
+                        color: AppTheme.danger,
+                      )
+                    : QuietIconButton(
+                        tooltip: context.l10n.settings,
+                        icon: Icons.tune,
+                        onPressed: _showSettingsDialog,
+                      ),
+              ),
             ),
-            const SizedBox(height: AppTheme.space3),
+            const SliverToBoxAdapter(child: SizedBox(height: AppTheme.space3)),
             _buildEntryList(desktop: true),
           ],
         ),
@@ -551,81 +619,72 @@ class _EventListScreenState extends State<EventListScreen> {
 
     return PopScope(
       canPop: true,
-      child: Scaffold(
-        body: Stack(
-          children: [
-            SafeArea(
-              child: desktop
-                  ? _buildDesktopLayout(selectedCount)
-                  : RefreshIndicator(
-                      onRefresh: _refresh,
-                      child: ListView(
-                        physics: const AlwaysScrollableScrollPhysics(),
-                        padding: const EdgeInsets.fromLTRB(
-                          AppTheme.pagePadding,
-                          14,
-                          AppTheme.pagePadding,
-                          104,
-                        ),
-                        children: [
-                          PageIntro(
-                            eyebrow: context.l10n.entriesEyebrow,
-                            title: widget.isSelectionMode
-                                ? context.l10n.selectedCount(selectedCount)
-                                : context.l10n.navEntries,
-                            description: widget.isSelectionMode
-                                ? context.l10n.ui(
-                                    '选择要从本地记录中删除的条目。',
-                                    'Choose the records you want to remove from your local ledger.',
-                                  )
-                                : _entriesHeaderMeta(),
-                            showContext: false,
-                            showCompactMeta: true,
-                            trailing: widget.isSelectionMode
-                                ? QuietIconButton(
-                                    tooltip: context.l10n.clearSelection,
-                                    icon: Icons.close,
-                                    onPressed: widget.onToggleSelectionMode,
-                                    color: AppTheme.danger,
-                                  )
-                                : QuietIconButton(
-                                    tooltip: context.l10n.settings,
-                                    icon: Icons.tune,
-                                    onPressed: _showSettingsDialog,
-                                  ),
+      child: Stack(
+        children: [
+          SafeArea(
+            child: desktop
+                ? _buildDesktopLayout(selectedCount)
+                : RefreshIndicator(
+                    onRefresh: _refresh,
+                    child: CustomScrollView(
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      slivers: [
+                        SliverPadding(
+                          padding: const EdgeInsets.fromLTRB(
+                            AppTheme.pagePadding,
+                            14,
+                            AppTheme.pagePadding,
+                            104,
                           ),
-                          const SizedBox(height: 12),
-                          _buildSummaryTiles(),
-                          const SizedBox(height: 10),
-                          _buildEntryList(desktop: false),
-                        ],
-                      ),
+                          sliver: SliverMainAxisGroup(
+                            slivers: [
+                              SliverToBoxAdapter(
+                                child: PageIntro(
+                                  eyebrow: context.l10n.entriesEyebrow,
+                                  title: widget.isSelectionMode
+                                      ? context.l10n.selectedCount(
+                                          selectedCount,
+                                        )
+                                      : context.l10n.navEntries,
+                                  description: widget.isSelectionMode
+                                      ? context.l10n.ui(
+                                          '选择要从本地记录中删除的条目。',
+                                          'Choose the records you want to remove from your local ledger.',
+                                        )
+                                      : _entriesHeaderMeta(),
+                                  showContext: false,
+                                  showCompactMeta: true,
+                                  trailing: widget.isSelectionMode
+                                      ? QuietIconButton(
+                                          tooltip: context.l10n.clearSelection,
+                                          icon: Icons.close,
+                                          onPressed:
+                                              widget.onToggleSelectionMode,
+                                          color: AppTheme.danger,
+                                        )
+                                      : QuietIconButton(
+                                          tooltip: context.l10n.settings,
+                                          icon: Icons.tune,
+                                          onPressed: _showSettingsDialog,
+                                        ),
+                                ),
+                              ),
+                              const SliverToBoxAdapter(
+                                child: SizedBox(height: 12),
+                              ),
+                              SliverToBoxAdapter(child: _buildSummaryTiles()),
+                              const SliverToBoxAdapter(
+                                child: SizedBox(height: 10),
+                              ),
+                              _buildEntryList(desktop: false),
+                            ],
+                          ),
+                        ),
+                      ],
                     ),
-            ),
-          ],
-        ),
-        floatingActionButtonLocation: const AppTuckedEndFabLocation(),
-        floatingActionButton: ContextualActionFab(
-          heroTag: 'entries-contextual-fab',
-          tooltip: widget.isSelectionMode
-              ? context.l10n.delete
-              : context.l10n.addEntryTooltip,
-          icon: widget.isSelectionMode ? Icons.delete : Icons.add,
-          isDestructive: widget.isSelectionMode,
-          onPressed: widget.isSelectionMode
-              ? () => unawaited(widget.onPerformDelete())
-              : _openAddEventSheet,
-          actions: widget.isSelectionMode
-              ? [
-                  ContextualFabAction(
-                    icon: Icons.close,
-                    label: context.l10n.clearSelection,
-                    tooltip: context.l10n.clearSelection,
-                    onPressed: widget.onToggleSelectionMode,
                   ),
-                ]
-              : const [],
-        ),
+          ),
+        ],
       ),
     );
   }
@@ -1160,24 +1219,38 @@ class _EntryCard extends StatelessWidget {
                 ),
               ),
               Positioned(
-                left: 17,
-                top: 18,
-                child: Container(
-                  width: 12,
-                  height: 12,
-                  decoration: BoxDecoration(
-                    color: color,
-                    borderRadius: BorderRadius.circular(AppTheme.radiusPill),
-                    border: Border.all(color: AppTheme.surface, width: 2),
-                    boxShadow: [
-                      BoxShadow(
-                        color: color.withValues(alpha: 0.24),
-                        blurRadius: 8,
-                        offset: const Offset(0, 3),
+                left: selectionMode ? 10 : 17,
+                top: selectionMode ? 10 : 18,
+                child: selectionMode
+                    ? SizedBox(
+                        width: 26,
+                        height: 26,
+                        child: Checkbox(
+                          value: selected,
+                          onChanged: (_) => onTap?.call(),
+                          materialTapTargetSize:
+                              MaterialTapTargetSize.shrinkWrap,
+                          visualDensity: VisualDensity.compact,
+                        ),
+                      )
+                    : Container(
+                        width: 12,
+                        height: 12,
+                        decoration: BoxDecoration(
+                          color: color,
+                          borderRadius: BorderRadius.circular(
+                            AppTheme.radiusPill,
+                          ),
+                          border: Border.all(color: AppTheme.surface, width: 2),
+                          boxShadow: [
+                            BoxShadow(
+                              color: color.withValues(alpha: 0.24),
+                              blurRadius: 8,
+                              offset: const Offset(0, 3),
+                            ),
+                          ],
+                        ),
                       ),
-                    ],
-                  ),
-                ),
               ),
               Padding(
                 padding: const EdgeInsets.fromLTRB(44, 11, 13, 11),
@@ -1187,19 +1260,6 @@ class _EntryCard extends StatelessWidget {
                     Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        if (selectionMode) ...[
-                          SizedBox(
-                            width: 28,
-                            height: 34,
-                            child: Center(
-                              child: Checkbox(
-                                value: selected,
-                                onChanged: (_) => onTap?.call(),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                        ],
                         Expanded(
                           child: Text(
                             event.description,

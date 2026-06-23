@@ -52,7 +52,9 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
   @override
   void didUpdateWidget(covariant StatisticsScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
-    _loadTodoColors();
+    if (!identical(oldWidget.events, widget.events)) {
+      _loadTodoColors();
+    }
   }
 
   Future<void> _loadTodoColors() async {
@@ -168,6 +170,12 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
     return context.l10n.hoursMinutesShort(hours, minutes);
   }
 
+  String _formatCompactDuration(int totalMinutes) {
+    final hours = totalMinutes ~/ 60;
+    final minutes = totalMinutes % 60;
+    return '$hours:${minutes.toString().padLeft(2, '0')}';
+  }
+
   Future<void> _generateAiInsight() async {
     if (_filteredEvents.isEmpty) {
       ScaffoldMessenger.of(
@@ -269,7 +277,7 @@ $eventLines
         Expanded(
           child: MetricTile(
             label: context.l10n.trackedTime,
-            value: _formatDuration(_totalMinutes),
+            value: _formatCompactDuration(_totalMinutes),
             icon: Icons.timelapse,
             accent: AppTheme.steel,
           ),
@@ -295,6 +303,10 @@ $eventLines
       0,
       (sum, value) => sum + value,
     );
+    final percentages = <double>[
+      for (final value in displayValues)
+        (value / math.max(totalDisplayValue, 1)) * 100,
+    ];
 
     if (entries.isEmpty) {
       return EmptyState(
@@ -308,6 +320,11 @@ $eventLines
         _touchedPieIndex >= 0 && _touchedPieIndex < entries.length
         ? entries[_touchedPieIndex]
         : null;
+    final centerEntry = touchedEntry ?? entries.first;
+    final centerPercent =
+        _touchedPieIndex >= 0 && _touchedPieIndex < percentages.length
+        ? percentages[_touchedPieIndex]
+        : percentages.first;
 
     return FadeSlideIn(
       child: GestureDetector(
@@ -333,45 +350,113 @@ $eventLines
               ),
               const SizedBox(height: 12),
               Center(
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(
-                    maxWidth: 280,
-                    maxHeight: 280,
-                  ),
-                  child: AspectRatio(
-                    aspectRatio: 1,
-                    child: PieChart(
-                      PieChartData(
-                        pieTouchData: PieTouchData(
-                          touchCallback: (_, response) {
-                            setState(() {
-                              _touchedPieIndex =
-                                  response
-                                      ?.touchedSection
-                                      ?.touchedSectionIndex ??
-                                  -1;
-                            });
-                          },
-                        ),
-                        sectionsSpace: 4,
-                        centerSpaceRadius: 56,
-                        sections: [
-                          for (var i = 0; i < entries.length; i++)
-                            PieChartSectionData(
-                              color: entries[i].color,
-                              value: displayValues[i],
-                              radius: _touchedPieIndex == i ? 102.0 : 92.0,
-                              title:
-                                  '${((displayValues[i] / math.max(totalDisplayValue, 1)) * 100).toStringAsFixed(0)}%',
-                              titleStyle: const TextStyle(
-                                fontSize: 15,
-                                fontWeight: FontWeight.w700,
-                                color: Colors.white,
-                              ),
+                child: SizedBox.square(
+                  dimension: 260,
+                  child: Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.all(4),
+                        child: PieChart(
+                          PieChartData(
+                            startDegreeOffset: -90,
+                            pieTouchData: PieTouchData(
+                              touchCallback: (_, response) {
+                                final nextIndex =
+                                    response
+                                        ?.touchedSection
+                                        ?.touchedSectionIndex ??
+                                    -1;
+                                if (nextIndex == _touchedPieIndex) {
+                                  return;
+                                }
+                                setState(() {
+                                  _touchedPieIndex = nextIndex;
+                                });
+                              },
                             ),
-                        ],
+                            sectionsSpace: 1.5,
+                            centerSpaceRadius: 74,
+                            centerSpaceColor: AppTheme.surface,
+                            sections: [
+                              for (var i = 0; i < entries.length; i++)
+                                PieChartSectionData(
+                                  color: entries[i].color.withValues(
+                                    alpha: _touchedPieIndex == i ? 1 : 0.9,
+                                  ),
+                                  value: displayValues[i],
+                                  radius: _touchedPieIndex == i ? 88.0 : 80.0,
+                                  borderSide: BorderSide(
+                                    color: AppTheme.surface.withValues(
+                                      alpha: 0.95,
+                                    ),
+                                    width: 2,
+                                  ),
+                                  title: '',
+                                ),
+                            ],
+                          ),
+                        ),
                       ),
-                    ),
+                      IgnorePointer(
+                        child: Container(
+                          width: 118,
+                          height: 118,
+                          padding: const EdgeInsets.all(14),
+                          decoration: BoxDecoration(
+                            color: AppTheme.surface,
+                            borderRadius: BorderRadius.circular(
+                              AppTheme.radiusPill,
+                            ),
+                            border: Border.all(
+                              color: centerEntry.color.withValues(alpha: 0.18),
+                            ),
+                            boxShadow: [
+                              BoxShadow(
+                                color: AppTheme.ink.withValues(alpha: 0.045),
+                                blurRadius: 18,
+                                offset: const Offset(0, 8),
+                              ),
+                            ],
+                          ),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              if (touchedEntry != null) ...[
+                                Text(
+                                  centerEntry.label,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  textAlign: TextAlign.center,
+                                  style: AppTheme.operationText(
+                                    const TextStyle(
+                                      color: AppTheme.muted,
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w800,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(height: 5),
+                              ],
+                              Text(
+                                touchedEntry == null
+                                    ? _formatCompactDuration(_totalMinutes)
+                                    : '${centerPercent.toStringAsFixed(0)}%',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: AppTheme.operationText(
+                                  TextStyle(
+                                    color: centerEntry.color,
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.w900,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ),
@@ -380,7 +465,8 @@ $eventLines
                 spacing: 12,
                 runSpacing: 10,
                 children: [
-                  for (final entry in entries) _LegendChip(entry: entry),
+                  for (var i = 0; i < entries.length; i++)
+                    _LegendChip(entry: entries[i], percent: percentages[i]),
                 ],
               ),
               if (touchedEntry != null)
@@ -393,11 +479,7 @@ $eventLines
                     borderRadius: BorderRadius.circular(AppTheme.radiusCard),
                   ),
                   child: Text(
-                    context.l10n.tagStatLine(
-                      touchedEntry.label,
-                      touchedEntry.count,
-                      _formatDuration(touchedEntry.minutes),
-                    ),
+                    '${context.l10n.tagStatLine(touchedEntry.label, touchedEntry.count, _formatDuration(touchedEntry.minutes))} · ${centerPercent.toStringAsFixed(0)}%',
                     style: const TextStyle(
                       fontSize: 15,
                       fontWeight: FontWeight.w700,
@@ -747,13 +829,17 @@ class _TagStats {
 }
 
 class _LegendChip extends StatelessWidget {
-  const _LegendChip({required this.entry});
+  const _LegendChip({required this.entry, required this.percent});
 
   final _TagStats entry;
+  final double percent;
 
   @override
   Widget build(BuildContext context) {
-    return AppChip(label: entry.label, color: entry.color);
+    return AppChip(
+      label: '${entry.label} ${percent.toStringAsFixed(0)}%',
+      color: entry.color,
+    );
   }
 }
 

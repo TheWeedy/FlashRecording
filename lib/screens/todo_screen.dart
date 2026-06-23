@@ -13,7 +13,14 @@ import '../widgets/app_components.dart';
 import '../widgets/responsive_scaffold.dart';
 
 class TodoScreen extends StatefulWidget {
-  const TodoScreen({super.key});
+  const TodoScreen({
+    super.key,
+    required this.fabController,
+    required this.pageIndex,
+  });
+
+  final PageFabController fabController;
+  final int pageIndex;
 
   @override
   State<TodoScreen> createState() => TodoScreenState();
@@ -43,12 +50,51 @@ class TodoScreenState extends State<TodoScreen> {
   bool _isLoading = true;
   bool _isAiLoading = false;
   String? _aiPlan;
+  bool _fabSyncScheduled = false;
 
   @override
   void initState() {
     super.initState();
     _loadTodos();
     unawaited(refreshFromCloud(force: false));
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _scheduleFabSync();
+  }
+
+  @override
+  void dispose() {
+    widget.fabController.clearConfig(widget.pageIndex);
+    super.dispose();
+  }
+
+  void _scheduleFabSync() {
+    if (_fabSyncScheduled) {
+      return;
+    }
+    _fabSyncScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _fabSyncScheduled = false;
+      if (!mounted) {
+        return;
+      }
+      if (_isLoading) {
+        widget.fabController.clearConfig(widget.pageIndex);
+        return;
+      }
+      widget.fabController.setConfig(widget.pageIndex, _buildFabConfig());
+    });
+  }
+
+  PageFabConfig _buildFabConfig() {
+    return PageFabConfig(
+      tooltip: context.l10n.createTaskTag,
+      icon: Icons.add,
+      onPressed: _showCreateTodoDialog,
+    );
   }
 
   Future<void> refreshFromCloud({bool force = true}) async {
@@ -68,6 +114,7 @@ class TodoScreenState extends State<TodoScreen> {
       _archivedTodos = archived;
       _isLoading = false;
     });
+    _scheduleFabSync();
   }
 
   Future<void> _showCreateTodoDialog() async {
@@ -119,7 +166,6 @@ class TodoScreenState extends State<TodoScreen> {
                               decoration: InputDecoration(
                                 labelText: l10n.title,
                               ),
-                              autofocus: true,
                             ),
                             const SizedBox(height: 16),
                             Text(
@@ -673,88 +719,70 @@ ${_archivedTodos.isEmpty ? '- 无' : _archivedTodos.map(itemLine).join('\n')}
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+      return const Center(child: CircularProgressIndicator());
     }
     final l10n = context.l10n;
 
     if (isDesktopLayout(context)) {
-      return Scaffold(
-        body: SafeArea(child: _buildDesktopLayout()),
-        floatingActionButtonLocation: const AppTuckedEndFabLocation(),
-        floatingActionButton: ContextualActionFab(
-          heroTag: 'tasks-contextual-fab',
-          tooltip: l10n.createTaskTag,
-          icon: Icons.add,
-          onPressed: _showCreateTodoDialog,
-        ),
-      );
+      return SafeArea(child: _buildDesktopLayout());
     }
 
-    return Scaffold(
-      body: SafeArea(
-        child: RefreshIndicator(
-          onRefresh: refreshFromCloud,
-          child: ReorderableListView(
-            physics: const AlwaysScrollableScrollPhysics(),
-            padding: const EdgeInsets.fromLTRB(
-              AppTheme.pagePadding,
-              12,
-              AppTheme.pagePadding,
-              142,
-            ),
-            onReorderItem: _reorderActiveTodos,
-            header: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                PageIntro(
-                  eyebrow: l10n.tasksEyebrow,
-                  title: l10n.tasksTitle,
-                  description: _tasksHeaderMeta(),
-                  showContext: false,
-                  showCompactMeta: true,
-                  trailing: QuietIconButton(
-                    icon: Icons.archive_outlined,
-                    tooltip: l10n.archived,
-                    onPressed: _showArchivedTodos,
+    return SafeArea(
+      child: RefreshIndicator(
+        onRefresh: refreshFromCloud,
+        child: ReorderableListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.fromLTRB(
+            AppTheme.pagePadding,
+            12,
+            AppTheme.pagePadding,
+            142,
+          ),
+          onReorderItem: _reorderActiveTodos,
+          header: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              PageIntro(
+                eyebrow: l10n.tasksEyebrow,
+                title: l10n.tasksTitle,
+                description: _tasksHeaderMeta(),
+                showContext: false,
+                showCompactMeta: true,
+                trailing: QuietIconButton(
+                  icon: Icons.archive_outlined,
+                  tooltip: l10n.archived,
+                  onPressed: _showArchivedTodos,
+                ),
+              ),
+              const SizedBox(height: 10),
+              _buildAiPlanPanel(),
+              const SizedBox(height: 10),
+              _buildMetricsRow(),
+              const SizedBox(height: 10),
+            ],
+          ),
+          footer: const SizedBox(height: 16),
+          children: _activeTodos.isEmpty
+              ? [
+                  Padding(
+                    key: const ValueKey('empty-task-card'),
+                    padding: const EdgeInsets.only(bottom: 10),
+                    child: EmptyState(
+                      icon: Icons.checklist_outlined,
+                      title: l10n.noTaskTagsTitle,
+                      message: l10n.noTaskTagsMessage,
+                    ),
+                  ),
+                ]
+              : List.generate(
+                  _activeTodos.length,
+                  (index) => _buildTodoCard(
+                    _activeTodos[index],
+                    key: ValueKey(_activeTodos[index].id),
+                    index: index,
                   ),
                 ),
-                const SizedBox(height: 10),
-                _buildAiPlanPanel(),
-                const SizedBox(height: 10),
-                _buildMetricsRow(),
-                const SizedBox(height: 10),
-              ],
-            ),
-            footer: const SizedBox(height: 16),
-            children: _activeTodos.isEmpty
-                ? [
-                    Padding(
-                      key: const ValueKey('empty-task-card'),
-                      padding: const EdgeInsets.only(bottom: 10),
-                      child: EmptyState(
-                        icon: Icons.checklist_outlined,
-                        title: l10n.noTaskTagsTitle,
-                        message: l10n.noTaskTagsMessage,
-                      ),
-                    ),
-                  ]
-                : List.generate(
-                    _activeTodos.length,
-                    (index) => _buildTodoCard(
-                      _activeTodos[index],
-                      key: ValueKey(_activeTodos[index].id),
-                      index: index,
-                    ),
-                  ),
-          ),
         ),
-      ),
-      floatingActionButtonLocation: const AppTuckedEndFabLocation(),
-      floatingActionButton: ContextualActionFab(
-        heroTag: 'tasks-contextual-fab',
-        tooltip: l10n.createTaskTag,
-        icon: Icons.add,
-        onPressed: _showCreateTodoDialog,
       ),
     );
   }

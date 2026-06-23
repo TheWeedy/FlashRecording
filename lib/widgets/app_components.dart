@@ -80,10 +80,8 @@ class ContextualFabAction {
   final Color? foregroundColor;
 }
 
-class ContextualActionFab extends StatelessWidget {
-  const ContextualActionFab({
-    super.key,
-    required this.heroTag,
+class PageFabConfig {
+  const PageFabConfig({
     required this.tooltip,
     required this.icon,
     required this.onPressed,
@@ -91,7 +89,89 @@ class ContextualActionFab extends StatelessWidget {
     this.actions = const [],
   });
 
-  final Object heroTag;
+  final String tooltip;
+  final IconData icon;
+  final VoidCallback? onPressed;
+  final bool isDestructive;
+  final List<ContextualFabAction> actions;
+
+  String get visualSignature {
+    return [
+      tooltip,
+      _iconSignature(icon),
+      isDestructive,
+      onPressed != null,
+      for (final action in actions) _actionSignature(action),
+    ].join('|');
+  }
+}
+
+class PageFabController extends ChangeNotifier {
+  final Map<int, PageFabConfig> _configs = {};
+  int _currentPage = 0;
+
+  PageFabConfig? get currentConfig => _configs[_currentPage];
+
+  void setCurrentPage(int page) {
+    if (_currentPage == page) {
+      return;
+    }
+    _currentPage = page;
+    notifyListeners();
+  }
+
+  void setConfig(int page, PageFabConfig config) {
+    final previousSignature = _configs[page]?.visualSignature;
+    _configs[page] = config;
+    if (page == _currentPage && previousSignature != config.visualSignature) {
+      notifyListeners();
+    }
+  }
+
+  void clearConfig(int page) {
+    final removed = _configs.remove(page);
+    if (removed != null && page == _currentPage) {
+      notifyListeners();
+    }
+  }
+}
+
+class PageFabHost extends StatelessWidget {
+  const PageFabHost({super.key, required this.controller});
+
+  final PageFabController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: controller,
+      builder: (context, _) {
+        final config = controller.currentConfig;
+        if (config == null) {
+          return const SizedBox.shrink();
+        }
+        return ContextualActionFab(
+          tooltip: config.tooltip,
+          icon: config.icon,
+          onPressed: config.onPressed,
+          isDestructive: config.isDestructive,
+          actions: config.actions,
+        );
+      },
+    );
+  }
+}
+
+class ContextualActionFab extends StatelessWidget {
+  const ContextualActionFab({
+    super.key,
+    required this.tooltip,
+    required this.icon,
+    required this.onPressed,
+    this.isDestructive = false,
+    this.actions = const [],
+  });
+
   final String tooltip;
   final IconData icon;
   final VoidCallback? onPressed;
@@ -131,14 +211,13 @@ class ContextualActionFab extends StatelessWidget {
               );
             },
             child: Column(
-              key: ValueKey('actions-${actions.length}-$isDestructive'),
+              key: ValueKey(_actionsSignature(actions)),
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
                 for (var i = 0; i < actions.length; i++) ...[
                   _ContextualSmallFab(
                     action: actions[i],
-                    heroTag: '$heroTag-action-$i',
                     delay: Duration(milliseconds: 32 * i),
                   ),
                   const SizedBox(height: 12),
@@ -167,13 +246,12 @@ class ContextualActionFab extends StatelessWidget {
                 ),
               );
             },
-            child: FloatingActionButton(
-              key: ValueKey('$heroTag-$icon-$isDestructive'),
-              heroTag: heroTag,
+            child: _ContextualMainFab(
+              key: ValueKey(_mainFabSignature(icon, isDestructive, onPressed)),
               tooltip: tooltip,
+              icon: icon,
               onPressed: onPressed,
-              backgroundColor: isDestructive ? AppTheme.danger : null,
-              child: Icon(icon, size: 25),
+              isDestructive: isDestructive,
             ),
           ),
         ],
@@ -182,15 +260,36 @@ class ContextualActionFab extends StatelessWidget {
   }
 }
 
-class _ContextualSmallFab extends StatelessWidget {
-  const _ContextualSmallFab({
-    required this.action,
-    required this.heroTag,
-    required this.delay,
+class _ContextualMainFab extends StatelessWidget {
+  const _ContextualMainFab({
+    super.key,
+    required this.tooltip,
+    required this.icon,
+    required this.onPressed,
+    required this.isDestructive,
   });
 
+  final String tooltip;
+  final IconData icon;
+  final VoidCallback? onPressed;
+  final bool isDestructive;
+
+  @override
+  Widget build(BuildContext context) {
+    return FloatingActionButton(
+      heroTag: 'app-contextual-fab',
+      tooltip: tooltip,
+      onPressed: onPressed,
+      backgroundColor: isDestructive ? AppTheme.danger : null,
+      child: Icon(icon, size: 25),
+    );
+  }
+}
+
+class _ContextualSmallFab extends StatelessWidget {
+  const _ContextualSmallFab({required this.action, required this.delay});
+
   final ContextualFabAction action;
-  final Object heroTag;
   final Duration delay;
 
   @override
@@ -225,18 +324,81 @@ class _ContextualSmallFab extends StatelessWidget {
             ),
             const SizedBox(width: 8),
           ],
-          FloatingActionButton(
-            heroTag: heroTag,
-            tooltip: action.tooltip,
-            onPressed: action.onPressed,
-            backgroundColor: action.backgroundColor ?? AppTheme.surface,
-            foregroundColor: action.foregroundColor ?? AppTheme.ink,
-            child: Icon(action.icon, size: 25),
+          Material(
+            color: Colors.transparent,
+            child: InkWell(
+              customBorder: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(AppTheme.radiusControl),
+              ),
+              onTap: action.onPressed,
+              child: Tooltip(
+                message: action.tooltip,
+                child: Container(
+                  width: 58,
+                  height: 58,
+                  decoration: BoxDecoration(
+                    color: action.backgroundColor ?? AppTheme.surface,
+                    borderRadius: BorderRadius.circular(AppTheme.radiusControl),
+                    border: Border.all(
+                      color: (action.foregroundColor ?? AppTheme.primary)
+                          .withValues(alpha: 0.36),
+                      width: 1.2,
+                    ),
+                    boxShadow: AppTheme.cardShadow,
+                  ),
+                  child: Icon(
+                    action.icon,
+                    size: 25,
+                    color: action.foregroundColor ?? AppTheme.primary,
+                    shadows: [
+                      Shadow(
+                        color: AppTheme.surface.withValues(alpha: 0.9),
+                        blurRadius: 2,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
           ),
         ],
       ),
     );
   }
+}
+
+String _iconSignature(IconData icon) {
+  return [
+    icon.fontFamily,
+    icon.fontPackage,
+    icon.codePoint,
+    icon.matchTextDirection,
+  ].join(':');
+}
+
+String _actionSignature(ContextualFabAction action) {
+  return [
+    _iconSignature(action.icon),
+    action.tooltip,
+    action.onPressed != null,
+    action.backgroundColor?.toARGB32(),
+    action.foregroundColor?.toARGB32(),
+  ].join(':');
+}
+
+String _actionsSignature(List<ContextualFabAction> actions) {
+  if (actions.isEmpty) {
+    return 'actions-empty';
+  }
+  return actions.map(_actionSignature).join('|');
+}
+
+String _mainFabSignature(
+  IconData icon,
+  bool isDestructive,
+  VoidCallback? onPressed,
+) {
+  return [_iconSignature(icon), isDestructive, onPressed != null].join(':');
 }
 
 class AppTuckedEndFabLocation extends FloatingActionButtonLocation {
