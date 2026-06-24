@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:sqflite/sqflite.dart';
 
 import '../models/note_item.dart';
@@ -32,6 +34,12 @@ class NotePersistenceService {
       entityId: note.id,
     );
     CloudSyncService.instance.scheduleSync();
+    unawaited(
+      CloudSyncService.instance.pushLocalRecordNow(
+        entityType: DeletedRecordService.entityNote,
+        localId: note.id,
+      ),
+    );
   }
 
   Future<void> archiveNote(String id) async {
@@ -46,6 +54,12 @@ class NotePersistenceService {
       whereArgs: [id],
     );
     CloudSyncService.instance.scheduleSync();
+    unawaited(
+      CloudSyncService.instance.pushLocalRecordNow(
+        entityType: DeletedRecordService.entityNote,
+        localId: id,
+      ),
+    );
   }
 
   Future<void> restoreNote(String id) async {
@@ -57,6 +71,12 @@ class NotePersistenceService {
       whereArgs: [id],
     );
     CloudSyncService.instance.scheduleSync();
+    unawaited(
+      CloudSyncService.instance.pushLocalRecordNow(
+        entityType: DeletedRecordService.entityNote,
+        localId: id,
+      ),
+    );
   }
 
   Future<void> deleteNotes(Iterable<String> ids) async {
@@ -77,6 +97,14 @@ class NotePersistenceService {
       );
     }
     CloudSyncService.instance.scheduleSync();
+    for (final id in ids) {
+      unawaited(
+        CloudSyncService.instance.pushLocalRecordNow(
+          entityType: DeletedRecordService.entityNote,
+          localId: id,
+        ),
+      );
+    }
   }
 
   Future<List<NoteItem>> _loadNotes({required bool archived}) async {

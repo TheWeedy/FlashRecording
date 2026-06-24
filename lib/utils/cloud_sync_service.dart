@@ -95,6 +95,45 @@ class CloudSyncService {
     await _drainQueue(throwOnError: throwOnError);
   }
 
+  Future<void> pushLocalRecordNow({
+    required String entityType,
+    required String localId,
+  }) async {
+    try {
+      final settings = await _settingsService.load();
+      if (!settings.isConfigured) {
+        return;
+      }
+
+      final session = await _authService.loadSession(settings);
+      if (!session.isLoggedIn || session.userId == null) {
+        return;
+      }
+
+      final localRecords = await _loadLocalRecords();
+      final local = localRecords['$entityType:$localId'];
+      if (local == null) {
+        return;
+      }
+
+      final pb = await _authService.createClient(settings.serverUrl);
+      final remote = await _findRemoteRecord(pb, session.userId!, local);
+      if (remote == null ||
+          local.changedAt.isAfter(remote.changedAt) ||
+          local.changedAt.isAtSameMomentAs(remote.changedAt) &&
+              !_recordsHaveSameContent(local, remote)) {
+        await _pushRecordWithConflictRecovery(
+          pb,
+          session.userId!,
+          _PushJob(local, remote: remote),
+        );
+      }
+    } catch (_) {
+      // The queued sync remains dirty and will retry; this best-effort path
+      // keeps recent note edits from waiting behind unrelated sync work.
+    }
+  }
+
   void _scheduleDrain(Duration delay) {
     _debounceTimer?.cancel();
     _debounceTimer = Timer(delay, () {

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -21,6 +22,7 @@ class NoteEditorScreen extends StatefulWidget {
 
 class _NoteEditorScreenState extends State<NoteEditorScreen> {
   static const _noteFontFamily = AppTheme.fontSerif;
+  static const _autoSaveDelay = Duration(seconds: 2);
 
   final NotePersistenceService _service = NotePersistenceService();
   final AiService _aiService = AiService();
@@ -28,10 +30,15 @@ class _NoteEditorScreenState extends State<NoteEditorScreen> {
   late final QuillController _quillController;
   late final FocusNode _editorFocusNode;
   late final ScrollController _editorScrollController;
-  late final String _initialTitle;
-  late final String _initialDeltaJson;
+  late String _lastSavedTitle;
+  late String _lastSavedDeltaJson;
+  NoteItem? _currentNote;
+  Timer? _autoSaveTimer;
   bool _isSaving = false;
   bool _isAiLoading = false;
+  bool _saveAgainAfterCurrent = false;
+  bool _closeAfterCurrentSave = false;
+  bool _didSave = false;
 
   @override
   void initState() {
@@ -51,14 +58,20 @@ class _NoteEditorScreenState extends State<NoteEditorScreen> {
       selection: const TextSelection.collapsed(offset: 0),
       readOnly: false,
     );
-    _initialTitle = _titleController.text.trim();
-    _initialDeltaJson = jsonEncode(
+    _currentNote = widget.initialNote;
+    _lastSavedTitle = _titleController.text.trim();
+    _lastSavedDeltaJson = jsonEncode(
       _quillController.document.toDelta().toJson(),
     );
+    _titleController.addListener(_scheduleAutoSave);
+    _quillController.addListener(_scheduleAutoSave);
   }
 
   @override
   void dispose() {
+    _autoSaveTimer?.cancel();
+    _titleController.removeListener(_scheduleAutoSave);
+    _quillController.removeListener(_scheduleAutoSave);
     _titleController.dispose();
     _quillController.dispose();
     _editorFocusNode.dispose();
@@ -71,12 +84,43 @@ class _NoteEditorScreenState extends State<NoteEditorScreen> {
     final currentDeltaJson = jsonEncode(
       _quillController.document.toDelta().toJson(),
     );
-    return currentTitle != _initialTitle ||
-        currentDeltaJson != _initialDeltaJson;
+    return currentTitle != _lastSavedTitle ||
+        currentDeltaJson != _lastSavedDeltaJson;
   }
 
-  Future<void> _saveNote() async {
+  bool get _hasPersistableContent {
+    if (_currentNote != null) {
+      return true;
+    }
+    final title = _titleController.text.trim();
+    final plainText = _quillController.document.toPlainText().trim();
+    return title.isNotEmpty || plainText.isNotEmpty;
+  }
+
+  void _scheduleAutoSave() {
+    if (!_hasChanges || !_hasPersistableContent) {
+      return;
+    }
+    _autoSaveTimer?.cancel();
+    _autoSaveTimer = Timer(_autoSaveDelay, () {
+      unawaited(_saveNote(closeAfterSave: false));
+    });
+  }
+
+  Future<void> _saveNote({bool closeAfterSave = true}) async {
     if (_isSaving) {
+      if (closeAfterSave) {
+        _closeAfterCurrentSave = true;
+      } else {
+        _saveAgainAfterCurrent = true;
+      }
+      return;
+    }
+    _autoSaveTimer?.cancel();
+    if (!_hasPersistableContent) {
+      if (closeAfterSave && mounted) {
+        Navigator.of(context).pop(_didSave);
+      }
       return;
     }
     _isSaving = true;
@@ -87,22 +131,46 @@ class _NoteEditorScreenState extends State<NoteEditorScreen> {
         : _titleController.text.trim();
 
     final now = DateTime.now();
+    final existingNote = _currentNote;
     final note = NoteItem(
-      id: widget.initialNote?.id ?? now.microsecondsSinceEpoch.toString(),
+      id: existingNote?.id ?? now.microsecondsSinceEpoch.toString(),
       title: title,
       deltaJson: jsonEncode(_quillController.document.toDelta().toJson()),
       plainTextPreview: plainText,
-      createdAt: widget.initialNote?.createdAt ?? now,
+      createdAt: existingNote?.createdAt ?? now,
       updatedAt: now,
-      archivedAt: widget.initialNote?.archivedAt,
+      archivedAt: existingNote?.archivedAt,
     );
 
-    await _service.upsertNote(note);
+    try {
+      await _service.upsertNote(note);
+    } catch (error) {
+      _isSaving = false;
+      if (closeAfterSave && mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('$error')));
+      }
+      return;
+    }
+    _currentNote = note;
+    _lastSavedTitle = _titleController.text.trim();
+    _lastSavedDeltaJson = note.deltaJson;
+    _didSave = true;
     _isSaving = false;
+    final shouldClose = closeAfterSave || _closeAfterCurrentSave;
+    _closeAfterCurrentSave = false;
+    if (_saveAgainAfterCurrent && !shouldClose) {
+      _saveAgainAfterCurrent = false;
+      _scheduleAutoSave();
+    }
+    _saveAgainAfterCurrent = false;
     if (!mounted) {
       return;
     }
-    Navigator.of(context).pop(true);
+    if (shouldClose) {
+      Navigator.of(context).pop(true);
+    }
   }
 
   Future<void> _handleBackNavigation() async {
@@ -113,7 +181,7 @@ class _NoteEditorScreenState extends State<NoteEditorScreen> {
     final title = _titleController.text.trim();
     if (!_hasChanges || (title.isEmpty && plainText.isEmpty)) {
       if (mounted) {
-        Navigator.of(context).pop(false);
+        Navigator.of(context).pop(_didSave);
       }
       return;
     }
