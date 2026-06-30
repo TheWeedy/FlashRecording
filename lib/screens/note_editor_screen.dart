@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_quill/flutter_quill.dart';
+import 'package:flutter/services.dart';
 
 import '../models/note_item.dart';
 import '../theme/app_theme.dart';
@@ -399,6 +400,50 @@ $content
     );
   }
 
+  Future<void> _pastePlainTextOnly() async {
+    final clipboardData = await Clipboard.getData(Clipboard.kTextPlain);
+    final text = clipboardData?.text;
+    if (text == null || text.isEmpty) {
+      return;
+    }
+
+    final selection = _quillController.selection;
+    final start = selection.isValid
+        ? selection.start
+        : _quillController.document.length - 1;
+    final length = selection.isValid && !selection.isCollapsed
+        ? selection.end - selection.start
+        : 0;
+    _quillController.replaceText(
+      start,
+      length,
+      text,
+      TextSelection.collapsed(offset: start + text.length),
+    );
+  }
+
+  Widget _buildEditorContextMenu(
+    BuildContext context,
+    QuillRawEditorState rawEditorState,
+  ) {
+    final items = <ContextMenuButtonItem>[
+      ...rawEditorState.contextMenuButtonItems,
+      ContextMenuButtonItem(
+        label: context.l10n.ui('仅粘贴文本', 'Paste text only', 'テキストのみ貼り付け'),
+        onPressed: () {
+          rawEditorState.hideToolbar();
+          unawaited(_pastePlainTextOnly());
+        },
+      ),
+    ];
+    return TextFieldTapRegion(
+      child: AdaptiveTextSelectionToolbar.buttonItems(
+        buttonItems: items,
+        anchors: rawEditorState.contextMenuAnchors,
+      ),
+    );
+  }
+
   DefaultStyles _editorStyles(BuildContext context) {
     final base = DefaultStyles.getInstance(context);
     final paragraph = base.paragraph!;
@@ -543,6 +588,7 @@ $content
                       '开始整理这个想法...',
                       'Start shaping the thought...',
                     ),
+                    contextMenuBuilder: _buildEditorContextMenu,
                     padding: const EdgeInsets.fromLTRB(18, 18, 18, 28),
                     customStyles: _editorStyles(context),
                   ),
