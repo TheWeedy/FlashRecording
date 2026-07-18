@@ -1,6 +1,9 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
+import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
 import 'package:pocketbase/pocketbase.dart';
 import 'package:sqflite/sqflite.dart';
 
@@ -345,11 +348,35 @@ class CloudSyncService {
   }) async {
     final payload = _normalizeRow(row);
     if (entityType == _fileItem) {
+      final markdownContent = await _readFileItemMarkdownContent(row);
       payload['local_path'] = '';
       payload['markdown_path'] = '';
       payload['tag_ids'] = await _loadFileItemTagIds(db, '${row['id']}');
+      payload['markdown_content'] = markdownContent;
     }
     return payload;
+  }
+
+  Future<String> _readFileItemMarkdownContent(Map<String, Object?> row) async {
+    final markdownPath = '${row['markdown_path'] ?? ''}'.trim();
+    final localPath = '${row['local_path'] ?? ''}'.trim();
+    final kind = '${row['kind'] ?? ''}'.trim();
+    final candidates = <String>[
+      if (markdownPath.isNotEmpty) markdownPath,
+      if (kind == 'text' && localPath.isNotEmpty && localPath != markdownPath)
+        localPath,
+    ];
+    for (final path in candidates) {
+      try {
+        final file = File(path);
+        if (await file.exists()) {
+          return await file.readAsString();
+        }
+      } catch (_) {
+        // Ignore unreadable local files; the preview metadata still syncs.
+      }
+    }
+    return '';
   }
 
   Future<List<String>> _loadFileItemTagIds(Database db, String itemId) async {
@@ -653,6 +680,7 @@ class CloudSyncService {
     }
     final payload = Map<String, dynamic>.from(remote.payload);
     final tagIds = payload.remove('tag_ids');
+    final markdownContent = payload.remove('markdown_content');
     await DeletedRecordService().clearDeletion(
       entityType: remote.entityType,
       entityId: remote.localId,
@@ -667,12 +695,30 @@ class CloudSyncService {
         whereArgs: [remote.localId],
         limit: 1,
       );
-      if (existing.isNotEmpty) {
-        payload['local_path'] = existing.first['local_path'];
-        payload['markdown_path'] = existing.first['markdown_path'];
-      } else {
-        payload['local_path'] = '';
-        payload['markdown_path'] = '';
+      final existingLocalPath = existing.isNotEmpty
+          ? '${existing.first['local_path'] ?? ''}'
+          : '';
+      final existingMarkdownPath = existing.isNotEmpty
+          ? '${existing.first['markdown_path'] ?? ''}'
+          : '';
+      payload['local_path'] = existingLocalPath;
+      payload['markdown_path'] = existingMarkdownPath;
+      if (markdownContent is String && markdownContent.isNotEmpty) {
+        final markdownPath = await _writeSyncedFileItemMarkdown(
+          localId: remote.localId,
+          kind: '${payload['kind'] ?? ''}',
+          existingMarkdownPath: existingMarkdownPath,
+          content: markdownContent,
+        );
+        payload['markdown_path'] = markdownPath;
+        if ('${payload['kind'] ?? ''}' == 'text' && existingLocalPath.isEmpty) {
+          payload['local_path'] = markdownPath;
+        }
+        if ((payload['size_bytes'] as Object?) == null ||
+            '${payload['size_bytes']}'.isEmpty ||
+            '${payload['size_bytes']}' == '0') {
+          payload['size_bytes'] = await File(markdownPath).length();
+        }
       }
     }
 
@@ -697,6 +743,44 @@ class CloudSyncService {
       }
       await batch.commit(noResult: true);
     }
+  }
+
+  Future<String> _writeSyncedFileItemMarkdown({
+    required String localId,
+    required String kind,
+    required String existingMarkdownPath,
+    required String content,
+  }) async {
+    final path = existingMarkdownPath.trim().isNotEmpty
+        ? existingMarkdownPath.trim()
+        : p.join(
+            (await _ensureKnowledgeDirectory(
+              _markdownDirectoryForKind(kind),
+            )).path,
+            '$localId.md',
+          );
+    final file = File(path);
+    if (!await file.parent.exists()) {
+      await file.parent.create(recursive: true);
+    }
+    await file.writeAsString(content, flush: true);
+    return file.path;
+  }
+
+  String _markdownDirectoryForKind(String kind) {
+    if (kind == 'web') {
+      return 'web_markdown';
+    }
+    return 'text';
+  }
+
+  Future<Directory> _ensureKnowledgeDirectory(String child) async {
+    final base = await getApplicationSupportDirectory();
+    final directory = Directory(p.join(base.path, 'knowledge', child));
+    if (!await directory.exists()) {
+      await directory.create(recursive: true);
+    }
+    return directory;
   }
 
   Future<void> _normalizeTodoSortOrder() async {

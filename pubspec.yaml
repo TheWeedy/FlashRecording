@@ -61,6 +61,7 @@ dependencies:
   google_mlkit_text_recognition: ^0.15.1
   url_launcher: ^6.3.2
   archive: ^4.0.9
+  pdfx: ^2.9.2
 
 dev_dependencies:
   flutter_test:

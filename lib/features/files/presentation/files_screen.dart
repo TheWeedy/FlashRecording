@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:flutter_quill/flutter_quill.dart';
 
 import '../../../models/file_item.dart';
@@ -16,6 +17,7 @@ import '../../../widgets/page_fab.dart';
 import '../../../widgets/responsive_scaffold.dart';
 import '../data/file_library_service.dart';
 import 'file_detail_screen.dart';
+import 'live_markdown_capture.dart';
 
 enum _FileLibraryView { active, archived }
 
@@ -174,7 +176,84 @@ class FilesScreenState extends State<FilesScreen>
     if (trimmed.isEmpty) {
       return;
     }
+    final sharedUrl = _extractFirstWebUrl(trimmed);
+    if (sharedUrl != null) {
+      await _runImport(() => _addWebpageWithBackgroundBrowser(sharedUrl));
+      return;
+    }
     await _runImport(() => _service.addSharedText(trimmed));
+  }
+
+  Future<FileItem> _addWebpageWithBackgroundBrowser(String inputUrl) async {
+    try {
+      final captured = await _captureWebpageWithHiddenBrowser(inputUrl);
+      return _service.addWebpageFromHtml(
+        inputUrl: inputUrl,
+        html: captured.html,
+        sourceUrl: captured.url,
+        title: captured.title,
+      );
+    } catch (_) {
+      return _service.addWebpage(inputUrl);
+    }
+  }
+
+  Future<_BackgroundWebCapture> _captureWebpageWithHiddenBrowser(
+    String inputUrl,
+  ) async {
+    if (!mounted) {
+      throw const FileLibraryException('The page is no longer active.');
+    }
+    final overlay = Overlay.of(context, rootOverlay: true);
+    final completer = Completer<_BackgroundWebCapture>();
+    late final OverlayEntry entry;
+    entry = OverlayEntry(
+      builder: (_) => _HiddenWebMarkdownCapture(
+        url: _normalizeWebUrl(inputUrl),
+        onCaptured: (capture) {
+          if (!completer.isCompleted) {
+            completer.complete(capture);
+          }
+        },
+        onFailed: (error) {
+          if (!completer.isCompleted) {
+            completer.completeError(error);
+          }
+        },
+      ),
+    );
+    overlay.insert(entry);
+    try {
+      return await completer.future.timeout(
+        const Duration(seconds: 45),
+        onTimeout: () => throw const FileLibraryException(
+          'The background browser capture timed out.',
+        ),
+      );
+    } finally {
+      entry.remove();
+    }
+  }
+
+  String _normalizeWebUrl(String value) {
+    final trimmed = value.trim();
+    if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+      return trimmed;
+    }
+    return 'https://$trimmed';
+  }
+
+  String? _extractFirstWebUrl(String value) {
+    final match = RegExp(r'(https?://[^\s]+|www\.[^\s]+)').firstMatch(value);
+    if (match == null) {
+      return null;
+    }
+    var url = match.group(0)!.trim();
+    while (url.isNotEmpty &&
+        RegExp(r'[，。！？；、,.!?;)\]}>》」』]').hasMatch(url[url.length - 1])) {
+      url = url.substring(0, url.length - 1);
+    }
+    return url.isEmpty ? null : url;
   }
 
   Future<void> importSharedFile(String path, {String? mimeType}) async {
@@ -303,7 +382,9 @@ class FilesScreenState extends State<FilesScreen>
               onPressed: () {
                 final url = controller.text;
                 Navigator.of(dialogContext).pop();
-                unawaited(_runImport(() => _service.addWebpage(url)));
+                unawaited(
+                  _runImport(() => _addWebpageWithBackgroundBrowser(url)),
+                );
               },
               child: Text(context.l10n.save),
             ),
@@ -2195,6 +2276,155 @@ $buffer
               ),
             ],
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class _BackgroundWebCapture {
+  const _BackgroundWebCapture({
+    required this.title,
+    required this.url,
+    required this.html,
+  });
+
+  final String title;
+  final String url;
+  final String html;
+}
+
+class _HiddenWebMarkdownCapture extends StatefulWidget {
+  const _HiddenWebMarkdownCapture({
+    required this.url,
+    required this.onCaptured,
+    required this.onFailed,
+  });
+
+  final String url;
+  final ValueChanged<_BackgroundWebCapture> onCaptured;
+  final ValueChanged<Object> onFailed;
+
+  @override
+  State<_HiddenWebMarkdownCapture> createState() =>
+      _HiddenWebMarkdownCaptureState();
+}
+
+class _HiddenWebMarkdownCaptureState extends State<_HiddenWebMarkdownCapture> {
+  InAppWebViewController? _controller;
+  Timer? _captureTimer;
+  bool _finished = false;
+
+  @override
+  void dispose() {
+    _captureTimer?.cancel();
+    super.dispose();
+  }
+
+  void _scheduleCapture() {
+    if (_finished) {
+      return;
+    }
+    _captureTimer?.cancel();
+    _captureTimer = Timer(const Duration(seconds: 2), () {
+      unawaited(_capture());
+    });
+  }
+
+  Future<void> _capture() async {
+    final controller = _controller;
+    if (controller == null || _finished) {
+      return;
+    }
+    try {
+      await controller.evaluateJavascript(
+        source:
+            'window.scrollTo(0, Math.max(document.body.scrollHeight, document.documentElement.scrollHeight));',
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 800));
+      await controller.evaluateJavascript(source: 'window.scrollTo(0, 0);');
+      await Future<void>.delayed(const Duration(milliseconds: 500));
+      final raw = await controller.evaluateJavascript(
+        source: liveMarkdownCaptureScript,
+      );
+      final payload = _decodeCapturePayload(raw);
+      final html = (payload['html'] as String? ?? '').trim();
+      final url = (payload['url'] as String? ?? widget.url).trim();
+      final title = (payload['title'] as String? ?? '').trim();
+      if (html.isEmpty) {
+        throw const FileLibraryException(
+          'The background browser did not expose readable content.',
+        );
+      }
+      _finish(
+        _BackgroundWebCapture(
+          title: title,
+          url: url.isEmpty ? widget.url : url,
+          html: html,
+        ),
+      );
+    } catch (error) {
+      _fail(error);
+    }
+  }
+
+  Map<String, Object?> _decodeCapturePayload(Object? raw) {
+    Object? decoded = raw;
+    if (decoded is String) {
+      decoded = jsonDecode(decoded);
+      if (decoded is String) {
+        decoded = jsonDecode(decoded);
+      }
+    }
+    if (decoded is Map) {
+      return decoded.map(
+        (key, value) => MapEntry(key.toString(), value as Object?),
+      );
+    }
+    throw const FormatException('Unexpected background capture response.');
+  }
+
+  void _finish(_BackgroundWebCapture capture) {
+    if (_finished) {
+      return;
+    }
+    _finished = true;
+    widget.onCaptured(capture);
+  }
+
+  void _fail(Object error) {
+    if (_finished) {
+      return;
+    }
+    _finished = true;
+    widget.onFailed(error);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Positioned.fill(
+      child: IgnorePointer(
+        child: Opacity(
+          opacity: 0,
+          child: InAppWebView(
+            initialUrlRequest: URLRequest(url: WebUri(widget.url)),
+            initialSettings: InAppWebViewSettings(
+              javaScriptEnabled: true,
+              transparentBackground: true,
+              supportZoom: false,
+              mediaPlaybackRequiresUserGesture: false,
+            ),
+            onWebViewCreated: (controller) {
+              _controller = controller;
+            },
+            onLoadStop: (_, _) => _scheduleCapture(),
+            onProgressChanged: (_, progress) {
+              if (progress >= 100) {
+                _scheduleCapture();
+              }
+            },
+            onReceivedError: (_, _, error) => _fail(error),
+          ),
         ),
       ),
     );

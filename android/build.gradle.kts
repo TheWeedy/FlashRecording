@@ -32,7 +32,7 @@ subprojects {
     }
     tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
         compilerOptions {
-            val target = if (project.name == "quill_native_bridge_android") {
+            val target = if (project.name == "quill_native_bridge_android" || project.name == "pdfx") {
                 org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_11
             } else {
                 org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17

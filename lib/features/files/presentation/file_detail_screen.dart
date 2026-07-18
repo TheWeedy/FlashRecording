@@ -14,62 +14,13 @@ import '../../../theme/app_theme.dart';
 import '../../../utils/app_localizations.dart';
 import '../../../widgets/app_components.dart';
 import '../data/file_library_service.dart';
+import 'live_markdown_capture.dart';
 
 enum _WebViewMode { live, snapshot }
 
 enum _ImageViewMode { image, ocr }
 
 enum _PdfViewMode { file, markdown }
-
-const String _liveMarkdownCaptureScript = r'''
-(() => {
-  const cleanup = (root) => {
-    root.querySelectorAll('script, style, noscript, nav, footer, header, iframe, form').forEach((node) => node.remove());
-    root.querySelectorAll('[hidden], [aria-hidden="true"], .advert, .ad, .ads, .recommend, .related, .comment, .share, .toolbar').forEach((node) => node.remove());
-    root.querySelectorAll('img').forEach((img) => {
-      const lazySrc = img.getAttribute('data-src') || img.getAttribute('data-original') || img.getAttribute('data-url');
-      if (lazySrc && !img.getAttribute('src')) {
-        img.setAttribute('src', lazySrc);
-      }
-    });
-  };
-
-  const selectors = [
-    '#js_content',
-    '.rich_media_content',
-    'article',
-    'main',
-    '[role="main"]',
-    '.article',
-    '.content',
-    '.post-content',
-    '.entry-content',
-    '.markdown-body'
-  ];
-  let source = null;
-  for (const selector of selectors) {
-    const candidate = document.querySelector(selector);
-    if (candidate && candidate.innerText && candidate.innerText.trim().length > 40) {
-      source = candidate;
-      break;
-    }
-  }
-  if (!source) {
-    source = document.body || document.documentElement;
-  }
-
-  const clone = source.cloneNode(true);
-  cleanup(clone);
-  const wechatTitle = document.querySelector('.rich_media_title')?.innerText?.trim();
-  const title = wechatTitle || document.title || location.hostname;
-  return JSON.stringify({
-    title,
-    url: location.href,
-    html: clone.outerHTML,
-    textLength: (clone.innerText || '').trim().length
-  });
-})()
-''';
 
 class FileDetailScreen extends StatefulWidget {
   const FileDetailScreen({super.key, required this.item});
@@ -320,6 +271,8 @@ class _FileDetailScreenState extends State<FileDetailScreen> {
               _copyUrl();
             } else if (value == 'update-markdown') {
               _captureMarkdownFromLiveWeb();
+            } else if (value == 'update-pdf-markdown') {
+              _runMarkdownRefresh(() => _service.refreshPdfMarkdown(_item));
             } else if (value == 'open') {
               _openExternally();
             } else if (value == 'source') {
@@ -369,6 +322,16 @@ class _FileDetailScreenState extends State<FileDetailScreen> {
                 value: 'update-markdown',
                 child: _MenuAction(
                   icon: Icons.travel_explore,
+                  label: context.l10n.updateMarkdown,
+                ),
+              ),
+            if (item.kind == FileItemKind.pdf &&
+                item.localPath.isNotEmpty &&
+                !_isRefreshingMarkdown)
+              PopupMenuItem(
+                value: 'update-pdf-markdown',
+                child: _MenuAction(
+                  icon: Icons.document_scanner_outlined,
                   label: context.l10n.updateMarkdown,
                 ),
               ),
@@ -487,7 +450,7 @@ class _FileDetailScreenState extends State<FileDetailScreen> {
     }
     await _runMarkdownRefresh(() async {
       final raw = await controller.evaluateJavascript(
-        source: _liveMarkdownCaptureScript,
+        source: liveMarkdownCaptureScript,
       );
       final payload = _decodeLiveCapturePayload(raw);
       final html = (payload['html'] as String? ?? '').trim();

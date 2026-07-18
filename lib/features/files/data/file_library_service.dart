@@ -9,9 +9,10 @@ import 'package:image/image.dart' as img;
 import 'package:mime/mime.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
+import 'package:pdfx/pdfx.dart' as pdfx;
 import 'package:reader_mode/reader_mode.dart' as reader_mode;
 import 'package:sqflite/sqflite.dart';
-import 'package:syncfusion_flutter_pdf/pdf.dart';
+import 'package:syncfusion_flutter_pdf/pdf.dart' as syncfusion_pdf;
 
 import '../../../models/file_item.dart';
 import '../../../utils/ai_service.dart';
@@ -221,6 +222,29 @@ class FileLibraryService {
     } finally {
       client.close(force: true);
     }
+  }
+
+  Future<FileItem> addWebpageFromHtml({
+    required String inputUrl,
+    required String html,
+    required String sourceUrl,
+    String? title,
+  }) async {
+    final url = _normalizeUrl(
+      sourceUrl.trim().isNotEmpty ? sourceUrl : inputUrl,
+    );
+    final captured = await _captureMarkdown(
+      html: html,
+      url: url,
+      titleOverride: title,
+      statusOverride: 'background_webview_dom',
+    );
+    if (!_hasEnoughCapturedText(captured)) {
+      throw const FileLibraryException(
+        'The background browser did not expose enough readable text yet.',
+      );
+    }
+    return _saveCapturedWebpage(url: url, captured: captured);
   }
 
   Future<FileItem> refreshWebpageMarkdownFromNetwork(FileItem item) async {
@@ -480,17 +504,157 @@ class FileLibraryService {
     return item;
   }
 
+  Future<FileItem> refreshPdfMarkdown(FileItem item) async {
+    if (item.kind != FileItemKind.pdf || item.localPath.isEmpty) {
+      throw const FileLibraryException('This item is not a PDF.');
+    }
+    final file = File(item.localPath);
+    if (!await file.exists()) {
+      throw const FileLibraryException('The stored PDF file is missing.');
+    }
+    final extracted = await _extractPdfMarkdown(file, item.title);
+    final directory = await _ensureDirectory('text');
+    final markdownPath = item.markdownPath.isNotEmpty
+        ? item.markdownPath
+        : p.join(directory.path, '${item.id}.md');
+    final markdownFile = File(markdownPath);
+    if (!await markdownFile.parent.exists()) {
+      await markdownFile.parent.create(recursive: true);
+    }
+    await markdownFile.writeAsString(extracted.markdown);
+    final db = await LocalDatabase.instance.database;
+    await db.update(
+      'file_items',
+      {
+        'markdown_path': markdownFile.path,
+        'plain_text_preview': _preview(extracted.plainText),
+        'updated_at': DateTime.now().toIso8601String(),
+      },
+      where: 'id = ?',
+      whereArgs: [item.id],
+    );
+    CloudSyncService.instance.scheduleSync();
+    return await findById(item.id) ?? item;
+  }
+
   Future<_ExtractedPdf> _extractPdfMarkdown(File file, String title) async {
+    if (!_supportsImageOcr) {
+      return _extractPdfSelectableTextMarkdown(file, title);
+    }
+
+    final capturedAt = DateTime.now().toIso8601String();
+    pdfx.PdfDocument? document;
+    final pageSections = <String>[];
+    final plainTextParts = <String>[];
+    final failures = <String>[];
+    try {
+      document = await pdfx.PdfDocument.openFile(file.path);
+      final directory = await _ensureDirectory('pdf_pages');
+      for (
+        var pageNumber = 1;
+        pageNumber <= document.pagesCount;
+        pageNumber++
+      ) {
+        pdfx.PdfPage? page;
+        File? pageImageFile;
+        try {
+          page = await document.getPage(pageNumber);
+          final renderScale = _pdfRenderScale(page.width, page.height);
+          final rendered = await page.render(
+            width: page.width * renderScale,
+            height: page.height * renderScale,
+            format: pdfx.PdfPageImageFormat.jpeg,
+            quality: 95,
+          );
+          if (rendered == null) {
+            failures.add('page $pageNumber: render returned empty image');
+            continue;
+          }
+          pageImageFile = File(
+            p.join(
+              directory.path,
+              '${p.basenameWithoutExtension(file.path)}_page_$pageNumber.jpg',
+            ),
+          );
+          await pageImageFile.writeAsBytes(rendered.bytes, flush: true);
+          final extracted = await _extractImageOcrMarkdown(
+            pageImageFile,
+            '$title - page $pageNumber',
+            languageMode: ImageOcrLanguageMode.chineseEnglish,
+          );
+          final pageText = extracted.plainText.trim();
+          final body = pageText.isEmpty
+              ? 'No text was recognized on this page.'
+              : pageText;
+          pageSections.add('## Page $pageNumber\n\n$body');
+          plainTextParts.add(body);
+        } catch (error) {
+          failures.add('page $pageNumber: $error');
+        } finally {
+          await page?.close().catchError((_) {});
+          if (pageImageFile != null) {
+            await _deleteIfExists(pageImageFile.path);
+          }
+        }
+      }
+
+      final pageCount = document.pagesCount;
+      final body = pageSections.isEmpty
+          ? 'No text was recognized in this PDF.'
+          : pageSections.join('\n\n');
+      final failureBlock = failures.isEmpty
+          ? ''
+          : '\n\n> OCR warnings: ${failures.join(' | ')}';
+      return _ExtractedPdf(
+        plainText: plainTextParts.isEmpty ? body : plainTextParts.join('\n\n'),
+        markdown:
+            '''
+---
+title: ${_yamlValue(title)}
+source_file: ${_yamlValue(file.path)}
+captured_at: $capturedAt
+page_count: $pageCount
+pdf_capture_mode: page_image_ocr
+ocr_status: ${pageSections.isEmpty ? 'empty' : 'recognized'}
+scripts: [chinese, latin]
+tags: []
+---
+
+# $title
+
+$body$failureBlock
+''',
+      );
+    } catch (error) {
+      final fallback = await _extractPdfSelectableTextMarkdown(file, title);
+      return _ExtractedPdf(
+        plainText: fallback.plainText,
+        markdown: fallback.markdown.replaceFirst(
+          'tags: []',
+          'pdf_capture_mode: selectable_text_fallback\npdf_image_ocr_error: ${_yamlValue('$error')}\ntags: []',
+        ),
+      );
+    } finally {
+      await document?.close().catchError((_) {});
+    }
+  }
+
+  Future<_ExtractedPdf> _extractPdfSelectableTextMarkdown(
+    File file,
+    String title,
+  ) async {
     final capturedAt = DateTime.now().toIso8601String();
     try {
       final bytes = await file.readAsBytes();
-      final document = PdfDocument(inputBytes: bytes);
+      final document = syncfusion_pdf.PdfDocument(inputBytes: bytes);
       final pageCount = document.pages.count;
-      final text = PdfTextExtractor(document).extractText(layoutText: true);
+      final text = syncfusion_pdf.PdfTextExtractor(
+        document,
+      ).extractText(layoutText: true);
       document.dispose();
       final normalized = text.trim();
       final body = normalized.isEmpty
-          ? 'No selectable text was found in this PDF. Scanned PDFs require OCR, which is not enabled in this version.'
+          ? 'No selectable text was found in this PDF.'
           : normalized;
       return _ExtractedPdf(
         plainText: body,
@@ -501,6 +665,7 @@ title: ${_yamlValue(title)}
 source_file: ${_yamlValue(file.path)}
 captured_at: $capturedAt
 page_count: $pageCount
+pdf_capture_mode: selectable_text_fallback
 tags: []
 ---
 
@@ -520,6 +685,7 @@ title: ${_yamlValue(title)}
 source_file: ${_yamlValue(file.path)}
 captured_at: $capturedAt
 page_count: unknown
+pdf_capture_mode: failed
 tags: []
 ---
 
@@ -529,6 +695,16 @@ $body
 ''',
       );
     }
+  }
+
+  double _pdfRenderScale(double width, double height) {
+    const preferredScale = 3.0;
+    const maxLongSide = 2600.0;
+    final longSide = math.max(width, height);
+    if (longSide <= 0) {
+      return preferredScale;
+    }
+    return math.min(preferredScale, math.max(1.0, maxLongSide / longSide));
   }
 
   Future<FileItem> refreshImageOcrMarkdown(
